@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Errand Agent</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e4e2dc;
+  --accent: #d9480f; --user: #1d1d1b; --user-ink: #fff; --agent: #f1efe9;
+  --ok: #2b8a3e; --warn: #b7791f; --bad: #c92a2a; --info: #1c7ed6; --violet: #7048e8;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413; --panel: #1d1d1b; --ink: #ecebe6; --muted: #9a988f; --line: #2e2d2a;
+    --user: #ecebe6; --user-ink: #141413; --agent: #262522;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, "Segoe UI", Inter, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
+header .tag { font: 12px var(--mono); color: var(--muted); }
+header .spacer { flex: 1; }
+button { font: inherit; font-size: 12.5px; padding: 6px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+main { flex: 1; display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1.15fr); min-height: 0; }
+section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
+#chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 88%; padding: 9px 12px; border-radius: 12px; white-space: pre-wrap; word-wrap: break-word; }
+.msg.user { align-self: flex-end; background: var(--user); color: var(--user-ink); border-bottom-right-radius: 3px; }
+.msg.agent { align-self: flex-start; background: var(--agent); border-bottom-left-radius: 3px; }
+.msg.proactive { border-left: 3px solid var(--violet); }
+.msg.proactive::before { content: "proactive · no user prompt"; display: block; font: 11px var(--mono); color: var(--violet); margin-bottom: 4px; }
+.msg.pending { opacity: .6; font-style: italic; }
+form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--panel); }
+form input { flex: 1; font: inherit; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+#right { display: grid; grid-template-rows: auto 1fr; min-height: 0; border-right: 0; }
+#state { padding: 10px 16px; border-bottom: 1px solid var(--line); font: 12px var(--mono); color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+#state b { color: var(--ink); font-weight: 600; }
+#trace { overflow-y: auto; font: 12px var(--mono); }
+.ev { padding: 5px 16px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: 64px 128px 1fr; gap: 8px; }
+.ev:hover { background: var(--agent); }
+.ev .t { color: var(--muted); }
+.chip { font-weight: 600; }
+.ev pre { grid-column: 1 / -1; margin: 6px 0 2px; white-space: pre-wrap; word-break: break-all; color: var(--muted); display: none; }
+.ev.open pre { display: block; }
+.k-run_start .chip, .k-run_end .chip { color: var(--muted); }
+.k-model_call .chip { color: var(--info); }
+.k-tool_call .chip { color: var(--ink); }
+.k-approval .chip, .k-guard .chip { color: var(--accent); }
+.k-execution .chip { color: var(--ok); }
+.k-recovery .chip, .k-limit .chip, .k-untrusted_content .chip, .k-model_error .chip { color: var(--bad); }
+.k-state_transition .chip { color: var(--warn); }
+.k-memory .chip, .k-proactive .chip { color: var(--violet); }
+.k-context .chip { color: var(--muted); }
+.filters label { font: 11px var(--mono); text-transform: none; letter-spacing: 0; margin-right: 6px; }
+@media (max-width: 860px) { main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } section { border-right: 0; border-bottom: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Errand Agent</h1><span class="tag" id="model"></span>
+  <span class="spacer"></span>
+  <button id="b-timeout" title="Next book() times out after actually booking">Force timeout-after-success</button>
+  <button id="b-price" title="Next hold_slot quotes ₹300 more than search">Force price change (+₹300)</button>
+  <button id="b-cancel" title="Provider cancels your latest upcoming booking">Simulate provider cancellation</button>
+  <button id="b-restart" title="Rebuild the agent from disk (runs crash recovery)">Restart process</button>
+</header>
+<main>
+  <section>
+    <h2>Chat</h2>
+    <div id="chat"></div>
+    <form id="f"><input id="in" autocomplete="off" placeholder="e.g. Find a plumber for my kitchen tap this week, mornings only, under ₹1,500"><button>Send</button></form>
+  </section>
+  <section id="right">
+    <div>
+      <h2>Trace <span class="filters" id="filters"></span></h2>
+      <div id="state"></div>
+    </div>
+    <div id="trace"></div>
+  </section>
+</main>
+<script>
+const chat = document.getElementById('chat'), trace = document.getElementById('trace');
+let tIdx = 0, oIdx = 0;
+const hidden = new Set(['context']);
+const KINDS = ['run_start','context','model_call','tool_call','approval','execution','recovery','state_transition','memory','proactive','limit','guard','untrusted_content','run_end'];
+const filt = document.getElementById('filters');
+for (const k of ['context','model_call','tool_call','state_transition']) {
+  const l = document.createElement('label');
+  l.innerHTML = `<input type="checkbox" ${hidden.has(k)?'':'checked'}> ${k}`;
+  l.querySelector('input').onchange = e => { e.target.checked ? hidden.delete(k) : hidden.add(k);
+    document.querySelectorAll('.k-'+k).forEach(n => n.style.display = e.target.checked ? '' : 'none'); };
+  filt.appendChild(l);
+}
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function md(s){ return esc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`(.+?)`/g,'<code>$1</code>'); }
+function addMsg(role, text, proactive){ const d=document.createElement('div'); d.className=`msg ${role}${proactive?' proactive':''}`; d.innerHTML=md(text); chat.appendChild(d); chat.scrollTop=chat.scrollHeight; return d; }
+function summary(e){
+  switch(e.event){
+    case 'run_start': return `${e.kind}${e.user_text?': '+e.user_text:''}`;
+    case 'model_call': return `${e.model} in=${e.input_tokens} out=${e.output_tokens} $${e.cost_usd} ${e.latency_ms}ms → ${(e.tool_calls||[]).map(c=>c.name).join(', ')||'reply'}`;
+    case 'tool_call': return `${e.origin==='provider'?'↳ provider ':''}${e.tool}(${JSON.stringify(e.args).slice(0,90)}) ${e.latency_ms}ms${e.blocked?' BLOCKED':''}`;
+    case 'state_transition': return `${e.frm} → ${e.to} · ${e.reason}`;
+    case 'approval': return `${e.action} ${e.proposal_id||''} ${e.reason||''}`;
+    case 'execution': return `${e.kind} ${e.proposal_id} ${e.status}${e.result&&e.result.verified_by?' (verified by '+e.result.verified_by+')':''}`;
+    case 'recovery': return `${e.kind} ${e.error||''} → ${e.action||e.status||''}`;
+    case 'context': return `${e.total_tokens}/${e.budget_tokens} tok · mem ${e.memory_included.length} in / ${Object.keys(e.memory_excluded).length} out · hist ${e.history_messages_included}/${e.history_messages_available}`;
+    case 'memory': return `${e.action} ${e.key||''} ${e.reason||''}`;
+    case 'limit': return `${e.kind}`;
+    case 'run_end': return `${e.outcome}`;
+    default: return JSON.stringify(e).slice(0,120);
+  }
+}
+function addEv(e){
+  if (e.event === 'run_start' && e.kind === 'startup') return;
+  const d=document.createElement('div'); d.className='ev k-'+e.event;
+  if (hidden.has(e.event)) d.style.display='none';
+  d.innerHTML=`<span class="t">${esc((e.ts||'').slice(11,19))}</span><span class="chip">${esc(e.event)}</span><span>${esc(summary(e))}</span><pre>${esc(JSON.stringify(e,null,1))}</pre>`;
+  d.onclick=()=>d.classList.toggle('open');
+  const atBottom = trace.scrollTop + trace.clientHeight >= trace.scrollHeight - 30;
+  trace.appendChild(d); if (atBottom) trace.scrollTop = trace.scrollHeight;
+}
+function renderState(s){
+  const st=s.state, r=st.request||{};
+  const up=(s.bookings||[]).filter(b=>b.status==='confirmed'&&b.slot>st.now.split(' ')[1]).map(b=>b.booking_id+' '+b.service).join(', ');
+  document.getElementById('state').innerHTML =
+    `phase <b>${esc(st.phase)}</b> · request <b>${esc([r.service,r.area,r.date_start,r.earliest_time&&('≥'+r.earliest_time),r.budget_max&&('≤₹'+r.budget_max)].filter(Boolean).join(' '))||'—'}</b>`+
+    ` · missing <b>${esc((r.missing||[]).join(', ')||'—')}</b> · proposal <b>${esc(st.proposal?st.proposal.id+' '+st.proposal.status:'—')}</b> · upcoming <b>${esc(up||'—')}</b>`;
+  document.getElementById('model').textContent = 'model: '+s.model;
+}
+async function poll(){
+  try {
+    const s = await (await fetch(`/api/poll?trace=${tIdx}&outbox=${oIdx}`)).json();
+    s.trace.forEach(addEv); tIdx = s.trace_len;
+    s.outbox.forEach(m => addMsg(m.role, m.text, m.proactive)); oIdx = s.outbox_len;
+    renderState(s);
+  } catch(e) {}
+}
+setInterval(poll, 1000); poll();
+document.getElementById('f').onsubmit = async ev => {
+  ev.preventDefault(); const i=document.getElementById('in'); const text=i.value.trim(); if(!text) return; i.value='';
+  addMsg('user', text); const p=addMsg('agent','thinking…'); p.classList.add('pending');
+  const r = await (await fetch('/api/chat',{method:'POST',body:JSON.stringify({text})})).json();
+  p.remove(); addMsg('agent', r.reply); poll();
+};
+const post = (u,b) => fetch(u,{method:'POST',body:JSON.stringify(b||{})}).then(poll);
+document.getElementById('b-timeout').onclick = () => post('/api/force',{book_outcome:'timeout_booked'});
+document.getElementById('b-price').onclick = () => post('/api/force',{price_drift:300});
+document.getElementById('b-cancel').onclick = () => post('/api/provider_cancel');
+document.getElementById('b-restart').onclick = () => post('/api/restart');
+</script>
+</body>
+</html>

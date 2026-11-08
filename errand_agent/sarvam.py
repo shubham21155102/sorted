@@ -71,7 +71,7 @@ def env() -> dict[str, str | None]:
     load_dotenv()
     load_dotenv(os.path.join("secrets", "sarvam.env"))
     return {k: os.environ.get(k) for k in (
-        "SARVAM_VA_API_KEY", "SARVAM_API_KEY", "SARVAM_ORG_ID", "SARVAM_WORKSPACE_ID", "SARVAM_APP_ID",
+        "SARVAM_VA_API_KEY", "SARVAM_SAMVAD_API_KEY", "SARVAM_API_KEY", "SARVAM_ORG_ID", "SARVAM_WORKSPACE_ID", "SARVAM_APP_ID",
         "SARVAM_APP_VERSION", "SARVAM_CONNECTION_ID", "SARVAM_AGENT_NUMBER", "ERRAND_PUBLIC_URL",
         "ERRAND_SARVAM_TOKEN")}
 
@@ -82,14 +82,21 @@ def configured(for_outbound: bool = True) -> list[str]:
     need = ["SARVAM_ORG_ID", "SARVAM_WORKSPACE_ID", "SARVAM_APP_ID", "SARVAM_APP_VERSION", "SARVAM_CONNECTION_ID",
             "SARVAM_AGENT_NUMBER", "ERRAND_PUBLIC_URL", "ERRAND_SARVAM_TOKEN"]
     missing = [k for k in need if not e.get(k)]
-    if not (e.get("SARVAM_VA_API_KEY") or e.get("SARVAM_API_KEY")):
+    if not voice_agents_key():
         missing.insert(0, "SARVAM_VA_API_KEY")
     return missing
 
 
+def voice_agents_key() -> str | None:
+    """Voice Agents (Samvaad) key. The speech-API key (SARVAM_API_KEY) is a different key type and is
+    only used as a last resort."""
+    e = env()
+    return e["SARVAM_VA_API_KEY"] or e["SARVAM_SAMVAD_API_KEY"] or e["SARVAM_API_KEY"]
+
+
 def _request(service: str, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
     e = env()
-    key = e["SARVAM_VA_API_KEY"] or e["SARVAM_API_KEY"]
+    key = voice_agents_key()
     url = f"{BASE[service]}/v1/orgs/{e['SARVAM_ORG_ID']}/workspaces/{e['SARVAM_WORKSPACE_ID']}{path}"
     req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"X-API-Key": key or "", "Content-Type": "application/json"})

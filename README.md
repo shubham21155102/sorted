@@ -1,17 +1,17 @@
 # Errand Agent
 
-A chat agent that arranges home-service errands (plumber, electrician, AC servicing, …) against a local mock provider service. It asks only for details you haven't given, compares providers and holds a slot. It books, cancels or reschedules only after you approve the exact details, and it recovers safely from provider failures. Claude drives the conversation and tool use; **application code** enforces approvals, idempotency, memory gating and limits.
+A chat agent that arranges home-service errands (plumber, electrician, AC servicing, …) against a local mock provider service. It asks only for details you haven't given, compares providers and holds a slot. It books, cancels or reschedules only after you approve the exact details, and it recovers safely from provider failures. An LLM (via LiteLLM) drives the conversation and tool use; **application code** enforces approvals, idempotency, memory gating and limits.
 
 ```
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
 # or: python3.12 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt   (needs Python ≥ 3.10;
 # a bare `pip` may resolve to an older system Python's pip outside the venv)
 
-.venv/bin/python -m pytest -q                 # 65 tests, offline, ~4s
+.venv/bin/python -m pytest -q                 # 64 tests, offline, ~4s
 .venv/bin/python -m evals.run_evals           # 35 scenarios → docs/EVAL_RESULTS.md
 
-# live (real Claude); without a key both fall back to the offline scripted model
-cp .env.example .env                          # ERRAND_LLM=litellm + ERRAND_MODEL + provider key
+# live LLM via LiteLLM; without ERRAND_MODEL both fall back to the offline scripted model
+cp .env.example .env                          # set ERRAND_MODEL, LITELLM_API_BASE, LITELLM_API_KEY
 .venv/bin/python -m errand_agent.server --fresh   # http://127.0.0.1:8765  chat + live trace side by side
 .venv/bin/python -m errand_agent.cli --fresh      # terminal chat (/cancel BK-1002, /memories, /state)
 ```
@@ -43,7 +43,7 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 | `context.py` | Token-budgeted context assembly, memory relevance gating, per-turn manifest. |
 | `sanitize.py` | Untrusted tool text: instruction-like sentences removed and flagged before reaching the model. |
 | `tracing.py` | JSONL trace, PII redaction, cost estimates. |
-| `llm.py` | Model adapters: LiteLLM (any provider), Claude via Anthropic SDK (adaptive thinking, refusal fallbacks), record/replay. |
+| `llm.py` | LiteLLM adapter (any provider or a LiteLLM proxy), record/replay. |
 | `scripted_model.py`, `nlu.py` | Offline deterministic model for evals, with switches to simulate a *misbehaving* model. |
 | `evals/` | Harness (simulated users, restarts, crashes, clock control), 35 scenarios, global invariants, table generator. |
 
@@ -62,6 +62,7 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 
 ## Model notes
 
-**LiteLLM** (`ERRAND_LLM=litellm`): any provider or model LiteLLM supports. Set `ERRAND_MODEL` (e.g. `anthropic/claude-opus-5`, `openai/gpt-4.1`) and that provider's key, or point `LITELLM_API_BASE`/`LITELLM_API_KEY` at a LiteLLM proxy. The adapter (`llm.LiteLLM`) converts the transcript to OpenAI tool-calling format and back. Cost comes from `litellm.completion_cost`. Everything else, including approvals, idempotency, memory and limits, is unchanged, because it's enforced in code, not by the model.
+**LiteLLM** (`ERRAND_LLM=litellm`): any provider or model LiteLLM supports. Set `ERRAND_MODEL` (e.g. `openai/gpt-4.1`) and that provider's key, or point `LITELLM_API_BASE`/`LITELLM_API_KEY` at a LiteLLM proxy. The adapter (`llm.LiteLLM`) converts the transcript to OpenAI tool-calling format and back. Cost comes from `litellm.completion_cost`. Everything else, including approvals, idempotency, memory and limits, is unchanged, because it's enforced in code, not by the model.
 
-**Anthropic SDK** (`ERRAND_LLM=live`, optional: `pip install anthropic`): `claude-opus-5` through the official `anthropic` SDK. It uses adaptive thinking at effort `medium`, plus server-side refusal fallbacks (`fallbacks="default"`, disable with `ERRAND_FALLBACKS=0`). Set `ERRAND_RECORD=cassette.jsonl` to record a live session, then replay it offline with `--model replay:cassette.jsonl`. `tests/test_live_adapter.py` exercises the real SDK path end-to-end against a mocked HTTP transport.
+
+Set `ERRAND_RECORD=cassette.jsonl` to record a live session, then replay it offline with `--model replay:cassette.jsonl`.

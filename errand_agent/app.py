@@ -36,20 +36,19 @@ def make_llm(kind: str) -> Any:
     if kind.startswith("replay:"):
         from .llm import ReplayLLM
         return ReplayLLM(kind.split(":", 1)[1])
-    from .llm import AnthropicLLM, LiteLLM, RecordingLLM
-    llm = LiteLLM() if kind == "litellm" else AnthropicLLM(model=os.environ.get("ERRAND_MODEL"))
+    if kind != "litellm":
+        raise ValueError(f"unknown model kind {kind!r}: use litellm | scripted | replay:<cassette.jsonl>")
+    from .llm import LiteLLM, RecordingLLM
+    llm = LiteLLM()
     rec = os.environ.get("ERRAND_RECORD")
     return RecordingLLM(llm, rec) if rec else llm
 
 
-PROVIDER_KEYS = ("LITELLM_API_BASE", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "AZURE_API_KEY")
-
-
 def default_model_kind() -> str:
-    """ERRAND_LLM wins; otherwise LiteLLM if any provider credential is configured, else the offline model."""
+    """ERRAND_LLM wins; otherwise LiteLLM if a model is configured, else the offline scripted model."""
     if os.environ.get("ERRAND_LLM"):
         return os.environ["ERRAND_LLM"]
-    return "litellm" if any(os.environ.get(k) for k in PROVIDER_KEYS) else "scripted"
+    return "litellm" if os.environ.get("ERRAND_MODEL") else "scripted"
 
 
 def build(data_dir: str = "run", model: str | None = None, session_id: str = "s1", user_id: str = "u1",

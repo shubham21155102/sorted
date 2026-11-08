@@ -1,7 +1,7 @@
 # Demo script (3–5 min Loom)
 
-Setup: `ANTHROPIC_API_KEY=… .venv/bin/python -m errand_agent.server --fresh` → open http://127.0.0.1:8765.
-The chat is on the left and the live trace is on the right; the header tag shows `model: live`.
+Setup: set `ERRAND_MODEL`, `LITELLM_API_BASE` and `LITELLM_API_KEY` in `.env`, then `.venv/bin/python -m errand_agent.server --fresh` → open http://127.0.0.1:8765.
+The chat is on the left and the live trace is on the right; the header tag shows `model: litellm`.
 (If you don't have a key, `--model scripted` runs the same UI on the offline model.)
 
 1. **Intro (20s).** Point out the two panes: the chat, and the trace with its state bar (phase / request / missing / proposal).

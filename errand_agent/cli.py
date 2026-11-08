@@ -1,6 +1,6 @@
 """Terminal chat.
 
-    python -m errand_agent.cli                 # live Claude if ANTHROPIC_API_KEY is set, else scripted
+    python -m errand_agent.cli                 # LiteLLM if ERRAND_MODEL is set, else scripted
     python -m errand_agent.cli --model scripted --fresh
 
 Commands: /events (poll provider events), /cancel BK-xxxx (simulate provider cancellation),
@@ -16,7 +16,7 @@ from .app import build
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default=None, help="live | litellm | scripted | replay:<cassette.jsonl>")
+    ap.add_argument("--model", default=None, help="litellm | scripted | replay:<cassette.jsonl>")
     ap.add_argument("--data", default="run")
     ap.add_argument("--fresh", action="store_true", help="wipe local state and reseed")
     args = ap.parse_args()

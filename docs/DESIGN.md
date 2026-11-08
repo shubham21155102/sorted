@@ -1,6 +1,6 @@
 # Design note — Errand Agent
 
-**Shape.** A single agent loop (`agent.py`). Claude reads the conversation and picks tools. Code owns the consequential parts: phase, approvals, idempotency, side-effect verification, memory gating, limits, and the status lines users see. More agents wouldn't make the hard problems (enforcement and correctness) any easier.
+**Shape.** A single agent loop (`agent.py`). The LLM (via LiteLLM) reads the conversation and picks tools. Code owns the consequential parts: phase, approvals, idempotency, side-effect verification, memory gating, limits, and the status lines users see. More agents wouldn't make the hard problems (enforcement and correctness) any easier.
 
 **State model.** `WorkflowState` is a small state machine: `idle → gathering → searching → choosing → awaiting_approval → executing → completed | failed`. The model never sets the phase. Phases change only on events the code observes, against an allow-list, and every transition is traced. `ErrandRequest` holds the slots and where each value came from (user / memory / event). Updates are merges, so "actually make it Thursday" changes only the date. Code computes `missing`, and the model asks only for those fields. State is saved to SQLite after every step.
 

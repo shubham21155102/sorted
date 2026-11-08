@@ -1,6 +1,6 @@
 """Small rule-based language understanding used ONLY by the offline scripted model.
 
-The live agent uses Claude for understanding; this exists so evals run offline
+The live agent uses the LLM for understanding; this exists so evals run offline
 and deterministically against a "scripted model" that still reads natural
 language from simulated users."""
 from __future__ import annotations

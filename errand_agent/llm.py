@@ -1,6 +1,5 @@
 """Model adapters.
 
-* AnthropicLLM  — real Claude via the official SDK (live runs, demo).
 * LiteLLM       — any provider/model through LiteLLM (or a LiteLLM proxy).
 * RecordingLLM / ReplayLLM — record a live session to JSONL and replay it offline.
 * The scripted policy model used by evals lives in scripted_model.py.
@@ -50,47 +49,6 @@ def estimate_tokens(text: str) -> int:
     return max(1, (len(text) + 3) // 4)
 
 
-class AnthropicLLM:
-    def __init__(self, model: str | None = None, effort: str = "medium", timeout_s: float = 60.0,
-                 client: Any = None):
-        try:
-            import anthropic  # optional dependency, only needed for ERRAND_LLM=live
-        except ImportError as e:
-            raise RuntimeError("ERRAND_LLM=live needs the Anthropic SDK: pip install 'anthropic>=2.6' "
-                               "(or use ERRAND_LLM=litellm)") from e
-
-        self.anthropic = anthropic
-        self.client = client or anthropic.Anthropic(timeout=timeout_s, max_retries=2)
-        self.model = model or os.environ.get("ERRAND_MODEL", "claude-opus-5")
-        self.effort = effort
-        self.use_fallbacks = os.environ.get("ERRAND_FALLBACKS", "1") == "1"
-
-    def complete(self, req: ModelRequest) -> ModelResponse:
-        kwargs: dict[str, Any] = dict(
-            model=self.model, max_tokens=8000, system=req.system, messages=req.messages, tools=req.tools,
-            thinking={"type": "adaptive"}, output_config={"effort": self.effort},
-        )
-        if self.use_fallbacks:
-            try:
-                # Server-side refusal fallbacks: if a safety classifier declines, the API retries on a
-                # fallback model instead of returning stop_reason="refusal".
-                resp = self.client.beta.messages.create(
-                    betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
-            except self.anthropic.BadRequestError:
-                self.use_fallbacks = False  # account/model doesn't support it: degrade once, keep going
-                resp = self.client.messages.create(**kwargs)
-        else:
-            resp = self.client.messages.create(**kwargs)
-        text = "".join(b.text for b in resp.content if b.type == "text")
-        calls = [ToolCall(b.id, b.name, dict(b.input)) for b in resp.content if b.type == "tool_use"]
-        if resp.stop_reason == "refusal":
-            text = text or "I can't help with that request."
-            calls = []
-        return ModelResponse(text=text, tool_calls=calls, stop_reason=resp.stop_reason or "end_turn",
-                             input_tokens=resp.usage.input_tokens, output_tokens=resp.usage.output_tokens,
-                             model=resp.model, raw_content=resp.content)
-
-
 class RecordingLLM:
     """Wraps a live model and appends every response to a JSONL cassette."""
 
@@ -128,7 +86,7 @@ class ReplayLLM:
 
 # ------------------------------------------------------------------ LiteLLM
 def to_openai_messages(system: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Convert the agent's Anthropic-style transcript (text / tool_use / tool_result blocks)
+    """Convert the agent's internal transcript (text / tool_use / tool_result blocks)
     into the OpenAI chat format LiteLLM expects."""
     out: list[dict[str, Any]] = [{"role": "system", "content": system}]
     for m in messages:
@@ -163,15 +121,17 @@ def to_openai_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 class LiteLLM:
-    """Any model LiteLLM supports, e.g. ERRAND_MODEL=anthropic/claude-opus-5, openai/gpt-4.1,
-    gemini/gemini-2.5-pro, or a LiteLLM proxy alias with LITELLM_API_BASE / LITELLM_API_KEY."""
+    """Any model LiteLLM supports (ERRAND_MODEL=provider/model), or a LiteLLM proxy model alias
+    with LITELLM_API_BASE / LITELLM_API_KEY."""
 
     def __init__(self, model: str | None = None, timeout_s: float = 60.0, completion_fn: Any = None):
         import litellm  # imported lazily so offline evals don't need it
 
         self.litellm = litellm
         self.completion = completion_fn or litellm.completion
-        self.model = model or os.environ.get("ERRAND_MODEL") or "anthropic/claude-opus-5"
+        self.model = model or os.environ.get("ERRAND_MODEL")
+        if not self.model:
+            raise RuntimeError("Set ERRAND_MODEL to a LiteLLM model id (provider/model) or your proxy's model alias")
         self.timeout_s = timeout_s
         self.api_base = os.environ.get("LITELLM_API_BASE") or None
         self.api_key = os.environ.get("LITELLM_API_KEY") or None

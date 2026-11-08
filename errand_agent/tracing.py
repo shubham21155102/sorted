@@ -18,12 +18,9 @@ from .clock import Clock
 # matched ISO dates like 2026-11-09 and corrupted every slot in the trace — see docs/BUGS.md.)
 PHONE_RE = re.compile(r"\+\d{1,3}[-\s]?\d{2}[\d\-\s]{6,}\d|\b\d{10}\b")
 
-# USD per million tokens (input, output) for cost estimates.
+# Fallback USD per million tokens (input, output) when the adapter doesn't report a cost.
+# LiteLLM reports real per-call cost via litellm.completion_cost, which takes precedence.
 PRICING = {
-    "claude-opus-5": (5.00, 25.00),
-    "claude-opus-5-5": (4.00, 20.00),
-    "claude-sonnet-5": (2.00, 10.00),
-    "claude-haiku-4-5": (1.00, 5.00),
     "scripted": (0.0, 0.0),
 }
 

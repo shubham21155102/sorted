@@ -4,6 +4,22 @@
 
 **State model.** `WorkflowState` is a phase machine: `idle → gathering → searching → choosing → awaiting_approval → executing → completed | failed`. Only code changes the phase, on observed events, against an allow-list, and every transition is traced. `ErrandRequest` holds the slots and where each value came from (user / memory / event). Updates are merges, so "actually make it Thursday" changes only the date. Code computes `missing`, and the model asks only for those fields. State is saved to SQLite after every step.
 
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> idle
+    idle --> gathering: request
+    gathering --> searching: nothing missing
+    searching --> choosing: providers found
+    choosing --> awaiting_approval: slot held, card shown
+    awaiting_approval --> executing: "yes" passes the parser
+    awaiting_approval --> choosing: change / price or slot moved
+    executing --> completed: verified with provider
+    executing --> failed: not applied after retries
+    completed --> [*]
+    failed --> choosing: offer alternatives
+```
+
 **Approval enforcement.**
 1. `request_approval` builds the proposal from the code's own records (the provider's hold, or the booking from `list_bookings`), never from model arguments. It mints an idempotency key and renders the exact text the user sees.
 2. A deterministic parser decides approval from the next user message: a bare "yes" (English or Hindi) or `confirm <id>`, in reply to that proposal only. "But", numbers, negations or changes don't count.
@@ -11,7 +27,19 @@
 
 Reviews, hostile users and a model that obeys injections can't produce an approval; evals check this.
 
-**Idempotency and recovery.** The proposal row is a write-ahead ledger: `pending → approved → executing → executed | failed`, marked `executing` before the provider call. After a timeout, 5xx, exception or malformed reply, the executor asks `get_booking_status(idempotency_key)`:
+**Idempotency and recovery.** The proposal row is a write-ahead ledger, marked `executing` before the provider call:
+
+```mermaid
+flowchart LR
+    P[pending] -->|yes| A[approved] --> E[executing] -->|ok| X[executed]
+    E -->|timeout / 5xx / garbage| S{{get_booking_status}}
+    S -->|applied| X
+    S -->|not applied| R[retry, same key] --> E
+    S -->|unreachable| U[unknown: never claimed]
+    E -->|retries exhausted| F[failed]
+```
+
+After a timeout, 5xx, exception or malformed reply, the executor asks `get_booking_status(idempotency_key)`:
 - applied → success;
 - not applied → bounded retry with the same key;
 - unreachable → *unknown*, never success.

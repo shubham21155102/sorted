@@ -20,6 +20,72 @@ cp .env.example .env                          # set ERRAND_MODEL, LITELLM_API_BA
 
 Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,500."* · *"Move my AC servicing to Saturday."* · *"Book the same electrician as last time, but not before 10 a.m."* · *"What do you remember about me?"* · *"Forget my budget limits."*
 
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph Channels["How you reach Sorted"]
+        Chat["Chat web app"]
+        Voice["Browser voice call<br/>LiveKit + Sarvam STT/TTS"]
+        Phone["Phone line<br/>Sarvam Voice Agent"]
+    end
+    subgraph Server["errand_agent.server (Python)"]
+        API["HTTP API<br/>chats, voice, phone, admin"]
+        Agent["ErrandAgent<br/>one loop per chat"]
+        Gate{{"Approval gate<br/>code, not the model"}}
+        Exec["Executor<br/>idempotency + verification"]
+        Ctx["ContextBuilder<br/>token budget + memory gating"]
+    end
+    LLM["LLM<br/>LiteLLM proxy or Sarvam-105b"]
+    World[("world.sqlite<br/>providers, slots, holds, bookings")]
+    Store[("agent.sqlite<br/>chats, memory, proposals ledger")]
+    Trace[["trace.jsonl<br/>every step, tokens, cost"]]
+    Google["Google Calendar + Gmail"]
+    Admin["Admin dashboard"]
+
+    Chat --> API
+    Voice --> API
+    Phone -- "errand_turn tool" --> API
+    API --> Agent
+    Agent <--> Ctx
+    Ctx <--> LLM
+    Agent -- "search / hold / list" --> World
+    Agent -- "book / cancel / reschedule" --> Gate --> Exec --> World
+    Agent <--> Store
+    Exec -- "only after verified" --> Google
+    Agent -.-> Trace
+    Admin --> World
+    World -. "provider cancelled event" .-> Agent
+```
+
+**A booking, end to end** (including a timeout after success):
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as You
+    participant A as Agent (LLM)
+    participant C as Code (gate + executor)
+    participant W as Provider world
+    U->>A: "Plumber this week, mornings, under ₹1,500"
+    A->>W: search_providers(plumber, indiranagar, week)
+    W-->>A: 3-8 providers with price, rating, jobs, slots
+    A->>W: get_provider(...) (reviews are data, injection ignored)
+    A->>W: hold_slot(provider, slot)
+    W-->>A: hold H-0001, quoted ₹990, expires in 10 min
+    A->>C: request_approval(hold)
+    C-->>U: Approval card written by code (provider, slot, price)
+    U->>C: "yes"
+    Note over C: Deterministic parser approves<br/>material facts must still match
+    C->>C: ledger: executing + idempotency key
+    C->>W: book(H-0001, key)
+    W--xC: timeout
+    C->>W: get_booking_status(key)
+    W-->>C: applied, BK-1004
+    C-->>U: Verified: BK-1004 confirmed (never claimed before this)
+    C->>C: Calendar event + email, only now
+```
+
 ## Deliverables
 
 | Item | Where |
@@ -57,6 +123,43 @@ The 8 tools from the assignment run against a **SQLite marketplace**, `run/world
 | `slot_overrides` | Slots the admin blocked (leave, another job) or opened as an exception. |
 | `holds`, `bookings`, `idempotency`, `cancel_attempts`, `taken_slots`, `events`, `op_log` | The transactional side the tools write: 10-minute holds, bookings, the source of truth for `get_booking_status`, the cancel-503 counter and provider-cancel events. |
 | `fault_queue` | Forced outcomes for demos and evals (next booking outcome, price change on hold, tool failure). |
+
+```mermaid
+erDiagram
+    PROVIDERS ||--o{ REVIEWS : has
+    PROVIDERS ||--o{ SLOT_OVERRIDES : "blocked / opened by admin"
+    PROVIDERS ||--o{ HOLDS : "10-minute holds"
+    PROVIDERS ||--o{ BOOKINGS : receives
+    HOLDS |o--o| BOOKINGS : "becomes"
+    BOOKINGS ||--o{ IDEMPOTENCY : "keyed by"
+    BOOKINGS ||--o{ EVENTS : "provider_cancelled"
+    PROVIDERS {
+        text provider_id PK
+        text service
+        text area
+        int price
+        real rating
+        int rating_count
+        int jobs_done
+        text work_start
+        text work_end
+        json days_off
+        bool active
+    }
+    REVIEWS {
+        int review_id PK
+        text author
+        int rating
+        text text
+        bool hidden
+    }
+    BOOKINGS {
+        text booking_id PK
+        text slot
+        int price
+        text status
+    }
+```
 
 A slot is offered when:
 - it's inside the provider's working hours and not on a day off;
@@ -111,6 +214,22 @@ Every change is written to the database and read by the next tool call, so it re
 - **Connecting a call:** the browser gets a token from `POST /api/voice/token`. That joins a fresh room and dispatches the `errand-voice` agent, with the chat's session id in the dispatch metadata.
 
 ### Phone calls via Sarvam (a number rented from Sarvam)
+
+```mermaid
+sequenceDiagram
+    actor Caller
+    participant S as Sarvam Voice Agent<br/>(STT, TTS, telephony)
+    participant T as Public tunnel<br/>/api/sarvam/* only
+    participant E as Sorted server
+    Caller->>S: rings the number / gets "Call my phone"
+    loop every caller turn
+        S->>T: errand_turn(text, caller, session_id) + bearer token
+        T->>E: same agent, approvals, memory, trace as chat
+        E-->>S: {"say": "..."}
+        S-->>Caller: speaks the reply
+    end
+    S->>E: call-completion webhook → "Phone call ended · 1m 15s" in the chat
+```
 
 The number is rented from **Sarvam Voice Agents**, so Sarvam runs the phone line: telephony, speech and Indian languages. Sorted stays the brain:
 

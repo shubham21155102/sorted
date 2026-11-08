@@ -18,6 +18,23 @@ def _cell(s: str) -> str:
     return str(s).replace("|", "\\|").replace("\n", " ")
 
 
+def charts(results: list) -> list[str]:
+    """Mermaid charts (GitHub renders them): overall result and coverage by category."""
+    passed = sum(r.passed for r in results)
+    cats: dict[str, list[int]] = {}
+    for r in results:
+        c = cats.setdefault(r.category, [0, 0])
+        c[0] += r.passed
+        c[1] += 1
+    out = ["```mermaid", "pie showData title Scenarios", f'    "Passed" : {passed}']
+    if passed < len(results):
+        out.append(f'    "Failed" : {len(results) - passed}')
+    out += ["```", "", "```mermaid", "pie showData title Scenarios by category"]
+    out += [f'    "{name} ({ok}/{n} pass)" : {n}' for name, (ok, n) in sorted(cats.items(), key=lambda kv: -kv[1][1])]
+    out += ["```", ""]
+    return out
+
+
 def main(argv: list[str]) -> int:
     os.chdir(ROOT)
     os.makedirs("docs/traces", exist_ok=True)
@@ -34,6 +51,7 @@ def main(argv: list[str]) -> int:
         "no duplicate bookings · context within budget and memory-gated · every run ends with a reply · "
         "no unverified success claims.",
         "",
+        *charts(results),
         "| # | Scenario | Category | Expected | Actual | Result | Notes |",
         "|---|---|---|---|---|---|---|",
     ]

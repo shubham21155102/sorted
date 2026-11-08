@@ -2,6 +2,17 @@
 
 **What the assignment wants to see:** one full booking, the agent's chat and its trace side by side, and ideally a failure handled live. This script shows two failures (prompt injection and timeout after success) and ends on the generated eval table.
 
+```mermaid
+timeline
+    title 4-minute demo
+    0m00 : Intro : chat + trace side by side
+    0m20 : Clarify from memory : area filled in, context manifest
+    1m00 : Compare + prompt injection : flagged, approval card from code
+    1m50 : Timeout after success : queued in admin Simulation, verified via get_booking_status
+    3m00 : Provider cancels : agent tells you, fresh approval for a replacement
+    3m40 : Memory + evals : forget a fact, 36/36 passed
+```
+
 ## Before recording (2 min)
 1. Start the app with `.venv/bin/python -m errand_agent.server` and open http://127.0.0.1:8765.
    - Don't add `--fresh`: it wipes your chats, memory and bookings.

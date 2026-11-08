@@ -167,6 +167,7 @@ def test_sarvam_turn_requires_token(sarvam_app):
 
 def test_sarvam_inbound_call_flow_creates_chat_and_books(sarvam_app):
     app = sarvam_app
+    app.world.state["forced_book_outcomes"] = ["success"]  # this test is about the call flow, not provider failures
     call = {"caller": "+919876543210", "interaction_id": "20261108/abc-1", "session_id": "@session_id"}
     r = _sarvam(app, "sarvam_turn", {**call, "text": "Find a plumber in Indiranagar next week, mornings, under 1500"})
     sid = r["obj"]["session_id"]

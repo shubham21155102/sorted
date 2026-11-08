@@ -78,8 +78,9 @@ class ErrandAgent:
     def __init__(self, *, llm: Any, world: MockWorld, store: Store, user_id: str = "u1", session_id: str = "s1",
                  clock: Clock | None = None, trace_path: str | None = None, limits: Limits | None = None,
                  context_budget: int = 8000, fault_hook: Callable[[str], None] | None = None,
-                 model_name: str | None = None):
+                 model_name: str | None = None, connectors: Any = None):
         self.llm = llm
+        self.connectors = connectors  # ConnectorHub (Google Calendar / Gmail) or None
         self.world = world
         self.store = store
         self.user_id = user_id
@@ -113,6 +114,8 @@ class ErrandAgent:
         self._wall_t0 = time.monotonic()
         self._run_executions: list[dict[str, Any]] = []
         self._run_proposals: list[str] = []
+        self._connector_notes: list[str] = []
+        self._busy: list | None = None
         self._current_user_text = ""
 
     def _elapsed(self) -> float:
@@ -283,6 +286,12 @@ class ErrandAgent:
                                    kind="proactive")
             return msg
         self._emit("proactive", decision="notify_and_find_replacement", booking=b)
+        if self.connectors:
+            for n in self._safe(lambda: self.connectors.on_cancelled(
+                    b["booking_id"], by_provider=True,
+                    summary=f"{b['service'].replace('_', ' ').title()}: {b['provider_name']}"), []):
+                self._emit("connector", connector=n["kind"], action="provider_cancelled", ok=n["ok"] == "yes", note=n["text"])
+                self._connector_notes.append(n["text"])
         slot_day = datetime.fromisoformat(b["slot"]).date()
         start = max(slot_day, self.clock.now().date())
         req = ErrandRequest(intent="rebook_after_provider_cancel", service=b["service"],
@@ -404,7 +413,7 @@ class ErrandAgent:
 
     # ============================================================= finalize
     def _status_lines(self) -> list[str]:
-        lines = []
+        lines: list[str] = []
         for ex in self._run_executions:
             p = self.store.get_proposal(ex["proposal_id"])
             act = p["action"] if p else "action"
@@ -421,6 +430,7 @@ class ErrandAgent:
                              f"blindly; I'll verify with the provider before doing anything else.")
             else:
                 lines.append(f"❌ Not completed [{ex['proposal_id']}]: {ex.get('reason') or ex.get('error')}. Nothing was charged.")
+        lines.extend(self._connector_notes)
         return lines
 
     def _finalize(self, text: str | None, exit_reason: str | None = None) -> str:
@@ -539,12 +549,32 @@ class ErrandAgent:
             return False
         if req.date_end and slot[:10] > req.date_end:
             return False
+        if self._busy and self.connectors and self.connectors.overlaps(slot, self._busy):
+            return False  # you're busy then (Google Calendar)
         return True
+
+    def _load_busy(self, date_start: str | None, date_end: str | None) -> dict[str, Any] | None:
+        """Read busy times from the user's calendar for the search window (read-only)."""
+        if not (self.connectors and date_start):
+            return None
+        try:
+            self._busy = self.connectors.busy(date_start, date_end or date_start)
+        except Exception as e:  # calendar trouble must not block a search
+            self._busy = None
+            self._emit("connector", connector="google_calendar", action="busy_check_failed", error=str(e)[:200])
+            return {"checked": False, "note": "couldn't read your calendar; showing all slots"}
+        if self._busy is None:
+            return None
+        self._emit("connector", connector="google_calendar", action="busy_checked", blocks=len(self._busy),
+                   window=[date_start, date_end])
+        return {"checked": True, "busy_blocks": len(self._busy)}
 
     def _tool_search_providers(self, service: str, area: str, date_range: Any) -> dict[str, Any]:
         r = self._provider_call("search_providers", {"service": service, "area": area, "date_range": date_range})
         if not isinstance(r, dict) or "error" in r:
             return r if isinstance(r, dict) else {"error": "malformed_response"}
+        dr = r.get("date_range") or {}
+        calendar = self._load_busy(dr.get("start"), dr.get("end"))
         budget = self.state.request.budget_max
         avoid = (self.state.request.provider_preference or "")
         cands = []
@@ -561,7 +591,8 @@ class ErrandAgent:
         self.state.last_search = cands
         self._transition("choosing", f"search returned {len(cands)} providers")
         return {"service": r["service"], "area": r["area"], "date_range": r["date_range"],
-                "filters_applied": {"time_window": self._window(), "budget_max": budget},
+                "filters_applied": {"time_window": self._window(), "budget_max": budget,
+                                    **({"your_calendar": calendar} if calendar else {})},
                 "providers": cands}
 
     def _tool_get_provider(self, provider_id: str) -> dict[str, Any]:
@@ -604,9 +635,15 @@ class ErrandAgent:
             if datetime.fromisoformat(hold["expires_at"]) <= self.clock.now():
                 return {"error": "hold_expired", "detail": "hold a slot again before asking for approval"}
             facts = {"provider_id": hold["provider_id"], "slot": hold["slot"], "price": hold["quoted_price"]}
+            if self._busy is None and self.connectors:  # e.g. the user picked a slot without a search this run
+                self._load_busy(hold["slot"][:10], hold["slot"][:10])
+            if self._busy and self.connectors and self.connectors.overlaps(hold["slot"], self._busy):
+                return {"error": "calendar_conflict", "slot": hold["slot"],
+                        "detail": "The user is busy then according to their Google Calendar. Offer another slot."}
             display = {"provider_name": hold.get("provider_name"), "service": hold.get("service"),
                        "slot_human": human_slot(hold["slot"]), "search_price": hold.get("search_price"),
                        "hold_id": hold["hold_id"],
+                       "calendar_note": bool(self.connectors and self._safe(self.connectors.calendar_will_record)),
                        "hold_expires_human": datetime.fromisoformat(hold["expires_at"]).strftime("%H:%M")}
         elif action in ("cancel", "reschedule"):
             b = self._booking(booking_id or "")
@@ -643,6 +680,7 @@ class ErrandAgent:
         if out["status"] == "executed":
             self._transition("completed", f"{out['proposal_id']} executed and verified")
             self.state.active_proposal_id = None
+            self._after_verified_change(out)
         elif out["status"] == "failed":
             self._transition("failed", f"{out['proposal_id']} failed: {out.get('reason')}")
             self.state.active_proposal_id = None
@@ -693,6 +731,37 @@ class ErrandAgent:
             return {**self.executor.reschedule(p), "note": "already rescheduled earlier"}
         self._transition("executing", f"executing {p['id']}")
         return self._record_execution(self.executor.reschedule(p))
+
+    @staticmethod
+    def _safe(fn: Callable[[], Any], default: Any = False) -> Any:
+        try:
+            return fn()
+        except Exception:
+            return default
+
+    def _after_verified_change(self, out: dict[str, Any]) -> None:
+        """Connector writes (calendar, email) — only ever after a change verified with the provider."""
+        if not self.connectors or out.get("replayed"):
+            return
+        p = self.store.get_proposal(out["proposal_id"])
+        if not p:
+            return
+        try:
+            if p["action"] == "book":
+                prov = self.world.state["providers"].get(out.get("provider_id"), {})
+                notes = self.connectors.on_booked({
+                    "booking_id": out.get("booking_id"), "slot": out.get("slot"), "price": out.get("price"),
+                    "provider_id": out.get("provider_id"), "provider_name": p["display"].get("provider_name"),
+                    "service": p["display"].get("service"), "area": prov.get("area")})
+            elif p["action"] == "cancel":
+                notes = self.connectors.on_cancelled(out.get("booking_id"))
+            else:
+                notes = self.connectors.on_rescheduled(out.get("booking_id"), out.get("slot"))
+        except Exception as e:
+            notes = [{"kind": "connector", "ok": "no", "text": f"⚠️ Connected apps weren't updated ({type(e).__name__})."}]
+        for n in notes:
+            self._emit("connector", connector=n["kind"], action=p["action"], ok=n["ok"] == "yes", note=n["text"])
+            self._connector_notes.append(n["text"])
 
     # --- memory
     def _user_messages(self) -> list[str]:

@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS processed_events (
 CREATE TABLE IF NOT EXISTS phone_calls (
   call_id TEXT PRIMARY KEY, session_id TEXT, provider TEXT, direction TEXT, caller TEXT, started_at TEXT,
   ended_at TEXT);
+CREATE TABLE IF NOT EXISTS connector_accounts (
+  user_id TEXT, connector TEXT, account TEXT, data_json TEXT, settings_json TEXT, updated_at TEXT,
+  PRIMARY KEY (user_id, connector));
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state TEXT PRIMARY KEY, user_id TEXT, connector TEXT, redirect_uri TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS calendar_events (
+  booking_id TEXT PRIMARY KEY, user_id TEXT, event_id TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS profile (
   user_id TEXT PRIMARY KEY, phone TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS sessions (
@@ -190,6 +197,48 @@ class Store:
             d["confirmed"] = bool(d["confirmed"])
             out.append(d)
         return out
+
+    # ----------------------------------------------------------- connectors
+    def connector_account(self, user_id: str, connector: str) -> dict[str, Any] | None:
+        r = self.db.execute("SELECT * FROM connector_accounts WHERE user_id=? AND connector=?",
+                            (user_id, connector)).fetchone()
+        if not r:
+            return None
+        return {"account": r["account"], "data": json.loads(r["data_json"] or "{}"),
+                "settings": json.loads(r["settings_json"] or "{}"), "updated_at": r["updated_at"]}
+
+    def save_connector_account(self, user_id: str, connector: str, account: str, data: dict[str, Any],
+                               settings: dict[str, Any] | None, ts: str) -> None:
+        self.db.execute("INSERT INTO connector_accounts(user_id, connector, account, data_json, settings_json, "
+                        "updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id, connector) DO UPDATE SET "
+                        "account=excluded.account, data_json=excluded.data_json, settings_json=excluded.settings_json, "
+                        "updated_at=excluded.updated_at",
+                        (user_id, connector, account, json.dumps(data), json.dumps(settings or {}), ts))
+
+    def delete_connector_account(self, user_id: str, connector: str) -> None:
+        self.db.execute("DELETE FROM connector_accounts WHERE user_id=? AND connector=?", (user_id, connector))
+
+    def save_oauth_state(self, state: str, user_id: str, connector: str, redirect_uri: str, ts: str) -> None:
+        self.db.execute("INSERT INTO oauth_states(state, user_id, connector, redirect_uri, created_at) VALUES (?,?,?,?,?)",
+                        (state, user_id, connector, redirect_uri, ts))
+
+    def pop_oauth_state(self, state: str) -> dict[str, Any] | None:
+        """One-time use: the state is deleted as it is read."""
+        r = self.db.execute("SELECT * FROM oauth_states WHERE state=?", (state,)).fetchone()
+        if r:
+            self.db.execute("DELETE FROM oauth_states WHERE state=?", (state,))
+        return dict(r) if r else None
+
+    def calendar_event(self, booking_id: str) -> dict[str, Any] | None:
+        r = self.db.execute("SELECT * FROM calendar_events WHERE booking_id=?", (booking_id,)).fetchone()
+        return dict(r) if r else None
+
+    def save_calendar_event(self, booking_id: str, user_id: str, event_id: str, ts: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO calendar_events(booking_id, user_id, event_id, updated_at) "
+                        "VALUES (?,?,?,?)", (booking_id, user_id, event_id, ts))
+
+    def delete_calendar_event(self, booking_id: str) -> None:
+        self.db.execute("DELETE FROM calendar_events WHERE booking_id=?", (booking_id,))
 
     # ------------------------------------------------------------- profile
     def profile(self, user_id: str) -> dict[str, Any]:

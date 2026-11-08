@@ -97,6 +97,7 @@ class Scenario:
     limits: Limits = field(default_factory=Limits)
     llm_factory: Callable[[], Any] | None = None
     keep_trace: str | None = None  # copy the raw trace here (deliverable)
+    google: Any = None  # a FakeGoogle: the user has Google Calendar / Gmail connected
 
 
 class Ctx:
@@ -132,9 +133,16 @@ class Ctx:
             seed_all(self.store, "s1", "u1", self.sc.history_pairs)
         self.world = MockWorld(self.sc.config, self.clock, self.world_path)
         llm = self.sc.llm_factory() if self.sc.llm_factory else ScriptedModel(misbehave=self.sc.misbehave)
+        hub = None
+        if self.sc.google is not None:
+            from errand_agent.connectors import ConnectorHub
+            hub = ConnectorHub(self.store, "u1", self.clock, google_factory=lambda t, save: self.sc.google)
+            if not self.store.connector_account("u1", "google"):
+                self.store.save_connector_account("u1", "google", self.sc.google.email(), {"refresh_token": "r"},
+                                                  None, self.clock.now().isoformat())
         self.agent = ErrandAgent(llm=llm, world=self.world, store=self.store, user_id="u1", session_id="s1",
                                  clock=self.clock, trace_path=self.trace_path, limits=self.sc.limits,
-                                 context_budget=self.sc.context_budget, fault_hook=self._fault)
+                                 context_budget=self.sc.context_budget, fault_hook=self._fault, connectors=hub)
         self.recovered.extend(self.agent.outbox)
         self.agents.append(self.agent)
 

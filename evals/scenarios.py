@@ -565,3 +565,40 @@ add(name="model_unavailable", category="failures",
     llm_factory=_DeadLLM, steps=[PLUMBER_REQ],
     checks=[reply_contains(0, r"couldn't reach the language model", "clear model-failure message"),
             event_seen("model_error", "model error traced"), nothing_booked])
+
+
+# 36
+def _calendar_scenario():
+    from errand_agent.connectors import FakeGoogle
+    # The user is busy 09:00-11:00 every morning this week (Google Calendar).
+    busy = [(f"2026-11-{d:02d}T09:00:00+05:30", f"2026-11-{d:02d}T11:00:00+05:30") for d in range(9, 16)]
+    return FakeGoogle(busy=busy)
+
+
+_gcal = _calendar_scenario()
+
+
+@check("proposed slot avoids the user's busy calendar time (09:00-11:00)")
+def avoids_busy(c: Ctx):
+    slot = c.proposals()[0]["material"]["slot"]
+    return not ("09:00" <= slot[11:16] < "11:00"), slot
+
+
+@check("exactly one calendar event + one confirmation email, created only after the verified booking")
+def one_event(c: Ctx):
+    evs, sent = list(_gcal.events.values()), _gcal.sent
+    ops = c.ops("book")
+    ok = len(evs) == 1 and len(sent) == 1 and len(ops) == 1 and \
+        evs[0]["extendedProperties"]["private"]["errand_booking_id"] == ops[0]["booking_id"]
+    first_write = next((i for i, e in enumerate(c.events()) if e["event"] == "connector" and e.get("action") == "book"), None)
+    verified = next((i for i, e in enumerate(c.events()) if e["event"] == "execution" and e.get("status") == "executed"), None)
+    return ok and first_write is not None and verified is not None and first_write > verified, \
+        f"events={len(evs)} emails={len(sent)} book_ops={len(ops)}"
+
+
+add(name="google_calendar_busy_and_event", category="connectors",
+    expected="With Google connected: busy 09-11 slots are skipped; after approval + verified booking exactly one "
+             "calendar event and one confirmation email are created (never before)",
+    config=ScenarioConfig(book_outcomes=["success"]), google=_gcal,
+    steps=[PLUMBER_REQ, "yes", "yes"],
+    checks=[avoids_busy, one_event, reply_contains(0, r"added to your Google Calendar", "approval mentions the calendar")])

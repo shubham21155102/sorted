@@ -27,7 +27,7 @@ def load_dotenv(path: str = ".env") -> None:
 
 
 load_dotenv()
-for _secret in ("livekit.env", "sarvam.env", "telephony.env"):  # gitignored credential files
+for _secret in ("livekit.env", "sarvam.env", "telephony.env", "google.env"):  # gitignored credential files
     load_dotenv(os.path.join("secrets", _secret))
 
 
@@ -81,7 +81,7 @@ def seed_store(store: Store, user_id: str = "u1") -> None:
 
 
 def make_agent(store: Store, world: MockWorld, llm: Any, kind: str, session_id: str, user_id: str,
-               trace_path: str, context_budget: int = 12000) -> ErrandAgent:
+               trace_path: str, context_budget: int = 12000, connectors: Any = None) -> ErrandAgent:
     return ErrandAgent(llm=llm, world=world, store=store, user_id=user_id, session_id=session_id,
                        clock=world.clock, trace_path=trace_path, limits=Limits(max_wall_seconds=180),
-                       context_budget=context_budget, model_name=kind)
+                       context_budget=context_budget, model_name=kind, connectors=connectors)

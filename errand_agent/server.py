@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .agent import ErrandAgent
 from .app import ARCHIVE_SESSION, default_model_kind, make_agent, make_llm, seed_store
+from .connectors import ConnectorHub
 from .models import Catalog
 from .clock import SystemClock
 from .mock_env import MockWorld, ScenarioConfig
@@ -55,6 +56,7 @@ class App:
         self.reader = Store(self.db_path)  # separate connection: reads never wait on a running agent turn
         self.world = MockWorld(ScenarioConfig(), SystemClock(), self.world_path)
         self.catalog = Catalog()
+        self.hub = ConnectorHub(self.store, USER_ID, self.world.clock)  # Google Calendar / Gmail
         self.llms: dict[str, Any] = {}
         self.agents: dict[str, ErrandAgent] = {}
 
@@ -82,7 +84,7 @@ class App:
             model = self.session_model(sid)
             if sid not in self.agents:
                 self.agents[sid] = make_agent(self.store, self.world, self.llm_for(model), model, sid, USER_ID,
-                                              self.trace_path)
+                                              self.trace_path, connectors=self.hub)
             elif self.agents[sid].model_name != model:
                 self.agents[sid].set_model(self.llm_for(model), model)
             return self.agents[sid]
@@ -143,6 +145,11 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/api/models$", "models"),
     ("GET", r"^/api/voice/config$", "voice_config"),
     ("GET", r"^/api/profile$", "get_profile"),
+    ("GET", r"^/api/connectors$", "connectors"),
+    ("GET", r"^/api/connectors/google/connect$", "google_connect"),
+    ("GET", r"^/api/connectors/google/callback$", "google_callback"),
+    ("POST", r"^/api/connectors/google/disconnect$", "google_disconnect"),
+    ("PATCH", r"^/api/connectors/settings$", "connector_settings"),
     ("PUT", r"^/api/profile$", "put_profile"),
     ("POST", r"^/api/sessions/(?P<sid>[\w-]+)/call_me$", "call_me"),
     ("GET", r"^/api/sessions/(?P<sid>[\w-]+)/brief$", "brief"),
@@ -248,6 +255,60 @@ def make_handler(app: App):
                                   "inbound_number": os.environ.get("SARVAM_AGENT_NUMBER")
                                   or os.environ.get("ERRAND_INBOUND_NUMBER") or None},
                         "user_phone": app.reader.profile(USER_ID).get("phone")})
+
+        def _redirect(self, url: str) -> None:
+            self.send_response(302)
+            self.send_header("Location", url)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
+        def _google_redirect_uri(self) -> str:
+            # Loopback redirect (Google "Desktop app" OAuth clients accept any 127.0.0.1 port/path).
+            return f"http://{self.headers.get('Host') or '127.0.0.1:8765'}/api/connectors/google/callback"
+
+        def connectors(self) -> None:
+            phone = {"id": "phone", "name": "Phone line (Sarvam)", "connected": not sarvam_missing(),
+                     "account": os.environ.get("SARVAM_AGENT_NUMBER"),
+                     "description": "Inbound calls to your Errand number and 'Call my phone'."}
+            voice = {"id": "voice", "name": "Voice in the browser (LiveKit)",
+                     "connected": all(os.environ.get(k) for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")),
+                     "account": "Sarvam speech" if os.environ.get("SARVAM_API_KEY") else "LiveKit Inference",
+                     "description": "Talk to Errand from this page (mic button)."}
+            gateway = {"id": "models", "name": "Model gateway (LiteLLM)", "connected": app.kind == "litellm",
+                       "account": os.environ.get("LITELLM_API_BASE") and "LiteLLM proxy" or app.kind,
+                       "description": "The language models Errand thinks with (model picker)."}
+            self._json({"connectors": app.hub.status() + [phone, voice, gateway],
+                        "google_configured": ConnectorHub.google_configured(),
+                        "redirect_uri": self._google_redirect_uri()})
+
+        def google_connect(self) -> None:
+            try:
+                url = app.hub.begin_google(self._google_redirect_uri())
+            except ValueError:
+                return self._redirect("/#connectors?error=google_not_configured")
+            self._redirect(url)
+
+        def google_callback(self) -> None:
+            if self.q.get("error"):
+                return self._redirect(f"/#connectors?error={self.q['error']}")
+            try:
+                with app.lock:
+                    app.hub.finish_google(self.q.get("code", ""), self.q.get("state", ""))
+            except Exception as e:
+                return self._redirect("/#connectors?error=" + re.sub(r"[^\w-]", "_", type(e).__name__))
+            self._redirect("/#connectors?connected=google")
+
+        def google_disconnect(self) -> None:
+            with app.lock:
+                app.hub.disconnect_google()
+            self._json({"ok": True})
+
+        def connector_settings(self) -> None:
+            try:
+                with app.lock:
+                    self._json({"settings": app.hub.update_settings(self._body())})
+            except ValueError as e:
+                self._json({"error": str(e)}, 400)
 
         def get_profile(self) -> None:
             self._json({"name": USER_NAME, **app.reader.profile(USER_ID)})
@@ -502,7 +563,8 @@ def make_handler(app: App):
             with app.lock:
                 rows = app.world.list_bookings(USER_ID)["bookings"]
             t = app.world.clock.now().isoformat()
-            self._json({"bookings": [{**b, "upcoming": b["slot"] > t} for b in rows]})
+            self._json({"bookings": [{**b, "upcoming": b["slot"] > t,
+                                      "on_calendar": bool(app.reader.calendar_event(b["booking_id"]))} for b in rows]})
 
         def dev_force(self) -> None:
             b = self._body()

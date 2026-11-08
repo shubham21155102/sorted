@@ -116,7 +116,8 @@ class ApprovalGate:
             body = (f"Book **{d['provider_name']}** ({p['material']['provider_id']}) for {d['service']} "
                     f"on **{d['slot_human']}** at **₹{p['material']['price']}**"
                     + (f" (search price was ₹{d['search_price']})" if d.get("search_price") not in (None, p['material']['price']) else "")
-                    + f". Slot held until {d['hold_expires_human']}.")
+                    + f". Slot held until {d['hold_expires_human']}."
+                    + (" It will be added to your Google Calendar." if d.get("calendar_note") else ""))
         elif p["action"] == "cancel":
             body = (f"Cancel booking **{p['material']['booking_id']}** with {d['provider_name']} "
                     f"({d['service']}) on {d['slot_human']}.")

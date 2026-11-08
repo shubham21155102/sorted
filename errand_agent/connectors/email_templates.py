@@ -114,7 +114,7 @@ def render(kind: str, b: dict[str, Any], *, calendar: str | None = None) -> tupl
         for lab, val, was in rows)
     cal_html = (f'<tr><td style="padding:0 28px 6px"><table role="presentation" width="100%" cellpadding="0" '
                 f'cellspacing="0" style="background:{CREAM};border-radius:10px"><tr><td style="padding:12px 14px;'
-                f'font-size:14px;color:{INK}">📅&nbsp; {e(cal_line)}</td></tr></table></td></tr>') if cal_line else ""
+                f'font-size:14px;color:{INK};border-left:3px solid {ACCENT}">{e(cal_line)}</td></tr></table></td></tr>') if cal_line else ""
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light"><title>{e(subject)}</title></head>

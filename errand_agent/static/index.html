@@ -231,6 +231,18 @@ svg { display: block; }
 .bk-act { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink-2); background: var(--bg); }
 .bk-act:hover { color: var(--ink); border-color: var(--muted); }
 .bk-act:disabled { opacity: .6; cursor: default; }
+.bk-act { display: inline-flex; align-items: center; gap: 5px; }
+.bk-act .icon { width: 13px; height: 13px; }
+.bk-act.danger:hover { color: var(--bad); border-color: var(--bad); }
+.chat-acts { margin: 2px 0 6px; }
+.chat-acts:empty { display: none; }
+.bk-state { font-size: 12px; color: var(--muted); padding: 3px 2px; }
+.cal-pill { display: inline-flex; align-items: center; gap: 3px; vertical-align: 1px; }
+.cal-pill .icon { width: 11px; height: 11px; }
+.icon.ei { width: 1.05em; height: 1.05em; vertical-align: -0.16em; margin: 0 .1em; }
+.call-marker span { display: inline-flex; align-items: center; gap: 6px; }
+.call-marker .icon { width: 13px; height: 13px; }
+.voice-chip .vc-play .icon { width: 11px; height: 11px; display: block; }
 .item .v { font-size: 14px; word-wrap: break-word; }
 .pill { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--hover); color: var(--ink-2); white-space: nowrap; font-weight: 500; }
 .pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.bad { background: var(--bad-soft); color: var(--bad); }
@@ -465,6 +477,11 @@ const ICON = {
   moon: '<svg class="icon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg>',
   monitor: '<svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
   brain: '<svg class="icon" viewBox="0 0 24 24"><path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V7a3 3 0 00-3-3zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/></svg>',
+  mail: '<svg class="icon" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M4 7l8 6 8-6"/></svg>',
+  play: '<svg class="icon" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none"/></svg>',
+  calx: '<svg class="icon" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M4 10h16M9 3v4M15 3v4M10 13.5l4 4M14 13.5l-4 4"/></svg>',
+  calplus: '<svg class="icon" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M4 10h16M9 3v4M15 3v4M12 13v5M9.5 15.5h5"/></svg>',
+  ban: '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/></svg>',
   cal: '<svg class="icon" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
   clock: '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   tag: '<svg class="icon" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg>',
@@ -490,7 +507,15 @@ function toast(text) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = text; document.body.appendChild(t);
   setTimeout(() => t.remove(), 2200);
 }
+/* Status markers in stored text (✅ ⚠️ 📅 …) are drawn as SVG icons, never as emoji. */
+const EMOJI_ICON = { '✅': 'ok', '❌': 'bad', '⚠️': 'warn', '⚠': 'warn', '📅': 'cal', '✉️': 'mail', '✉': 'mail', '🔒': 'lock',
+  '📞': 'phone', '🎙️': 'mic', '🎙': 'mic', '🔔': 'bell' };
+const EMOJI_RE = /✅|❌|⚠️|⚠|📅|✉️|✉|🔒|📞|🎙️|🎙|🔔/g;
+const iconize = html => html.replace(EMOJI_RE, m => ICON[EMOJI_ICON[m]].replace('class="icon"', 'class="icon ei"'));
 function inline(s) {
+  return iconize(inline0(s));
+}
+function inline0(s) {
   return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g, '$1<em>$2</em>')
     .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
@@ -515,7 +540,7 @@ function markdown(text) {
 }
 /* Split an assistant reply into prose, status notes and the approval card. */
 function renderAssistant(text, { interactive }) {
-  const blocks = text.split(/\n{2,}/); const html = []; let prose = [];
+  const blocks = text.split(/\n{2,}/); const html = []; let prose = []; const bookingIds = [];
   const flush = () => { if (prose.length) { html.push(`<div class="prose">${markdown(prose.join('\n\n'))}</div>`); prose = []; } };
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i].trim();
@@ -530,19 +555,24 @@ function renderAssistant(text, { interactive }) {
       continue;
     }
     if (/^(✅|❌|⚠️|📅|✉️)/.test(b)) {
+      const bk = b.match(/^✅ Verified: booking \*\*(BK-\d+)\*\*/);
       flush();
       for (const line of b.split('\n')) {
         const n = line.match(/^(✅|❌|⚠️|📅|✉️)\s*([\s\S]*)$/);
         if (!n) { if (line.trim()) html.push(`<div class="prose">${markdown(line)}</div>`); continue; }
         const k = { '✅': 'ok', '❌': 'bad', '⚠️': 'warn', '📅': 'cal', '✉️': 'cal' }[n[1]];
-        const icon = n[1] === '📅' ? ICON.cal : n[1] === '✉️' ? ICON.bell : ICON[k];
+        const icon = n[1] === '📅' ? ICON.cal : n[1] === '✉️' ? ICON.mail : ICON[k];
         html.push(`<div class="note ${k}">${icon}<div class="txt">${inline(n[2])}</div></div>`);
       }
+      if (bk && !bookingIds.includes(bk[1])) bookingIds.push(bk[1]);
       continue;
     }
     prose.push(blocks[i]);
   }
-  flush(); return html.join('');
+  flush();
+  // actions for each verified booking go after all its notes (filled by fillBookingActions)
+  for (const id of bookingIds) html.push(`<div class="bk-acts chat-acts" data-booking="${id}"></div>`);
+  return html.join('');
 }
 const STEP_LABEL = { update_request: 'Noting your request', search_providers: 'Searching providers', get_provider: 'Reading provider details and reviews',
   hold_slot: 'Holding a slot', request_approval: 'Preparing your approval', book: 'Booking and verifying with the provider',
@@ -747,7 +777,7 @@ async function renderChat(sid) {
 function appendMessage(m, { interactive = false, steps = null } = {}) {
   const thread = $('#thread'); if (!thread) return;
   if (m.kind !== 'call') thread.querySelectorAll('.approval:not(.done)').forEach(a => a.classList.add('done'));
-  if (m.kind === 'call') { const c = document.createElement('div'); c.className = 'call-marker'; c.innerHTML = `<span>${esc(m.content)}</span>`; thread.appendChild(c); return c; }
+  if (m.kind === 'call') { const c = document.createElement('div'); c.className = 'call-marker'; c.innerHTML = `<span>${iconize(esc(m.content))}</span>`; thread.appendChild(c); return c; }
   const el = document.createElement('div'); el.className = `msg ${m.role === 'user' ? 'user' : 'assistant'}`;
   if (m.role === 'user') { el.innerHTML = `${m.kind === 'voice' ? `<div class="tag voice">${ICON.mic}Said on a call</div>` : m.kind === 'phone' ? `<div class="tag voice">${ICON.phone}Said on the phone</div>` : ''}<div class="bubble">${esc(m.content)}</div>`; }
   else {
@@ -766,7 +796,9 @@ function appendMessage(m, { interactive = false, steps = null } = {}) {
       card.querySelector('[data-act=change]').onclick = () => S.composer?.setText('Actually, ');
     });
   }
-  thread.appendChild(el); return el;
+  thread.appendChild(el);
+  if (el.querySelector('.chat-acts')) fillBookingActions(el);
+  return el;
 }
 function scrollDown(smooth = true) { const s = $('#scroller'); if (s) s.scrollTo({ top: s.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); }
 
@@ -800,7 +832,7 @@ async function send(text) {
     if (S.sid === sid) { appendMessage({ role: 'assistant', content: r.reply, model: r.model }, { interactive: true, steps }); S.count = r.count; scrollDown(); }
   } catch (err) {
     clearInterval(poll); thinking.remove();
-    appendMessage({ role: 'assistant', content: `⚠️ Something went wrong reaching the server: ${err.message}` });
+    appendMessage({ role: 'assistant', content: `⚠️ Something went wrong reaching the server: ${err.message}` });  // drawn as a warning note
   } finally {
     S.busy = false; S.composer?.refresh(); loadSessions().then(setTitle); loadModels(); pollMessages();
     if (S.panel) refreshPanel(true);
@@ -887,13 +919,13 @@ async function refreshPanel(full = false) {
     const acts = b => {
       if (!S.bookingsGoogle) return '';
       const cal = b.on_calendar
-        ? `<button class="bk-act" data-act="cal-remove" data-id="${esc(b.booking_id)}">📅 Remove from calendar</button>`
-        : (b.upcoming && b.status === 'confirmed' ? `<button class="bk-act" data-act="cal-add" data-id="${esc(b.booking_id)}">📅 Add to calendar</button>` : '');
+        ? `<button class="bk-act" data-act="cal-remove" data-id="${esc(b.booking_id)}">${ICON.calx}Remove from calendar</button>`
+        : (b.upcoming && b.status === 'confirmed' ? `<button class="bk-act" data-act="cal-add" data-id="${esc(b.booking_id)}">${ICON.calplus}Add to calendar</button>` : '');
       const mail = ['confirmed', 'cancelled', 'cancelled_by_provider'].includes(b.status)
-        ? `<button class="bk-act" data-act="email" data-id="${esc(b.booking_id)}">✉️ Resend email</button>` : '';
+        ? `<button class="bk-act" data-act="email" data-id="${esc(b.booking_id)}">${ICON.mail}Resend email</button>` : '';
       return mail || cal ? `<div class="bk-acts">${mail}${cal}</div>` : '';
     };
-    const row = b => `<div class="item"><div class="main-col"><div class="v">${esc(b.provider_name)}${b.on_calendar ? ' <span class="pill violet" title="On your Google Calendar">📅 calendar</span>' : ''}</div><div class="k2">${esc(b.service.replace('_', ' '))} · ${esc(fmtSlot(b.slot))} · ₹${b.price} · ${esc(b.booking_id)}</div>${acts(b)}</div>${pill(b.status)}</div>`;
+    const row = b => `<div class="item"><div class="main-col"><div class="v">${esc(b.provider_name)}${b.on_calendar ? ' <span class="pill violet cal-pill" title="On your Google Calendar">${ICON.cal}calendar</span>' : ''}</div><div class="k2">${esc(b.service.replace('_', ' '))} · ${esc(fmtSlot(b.slot))} · ₹${b.price} · ${esc(b.booking_id)}</div>${acts(b)}</div>${pill(b.status)}</div>`;
     const sig = JSON.stringify([bookings, S.bookingsGoogle]);
     if (full || sig !== S.bookingsSig) {  // don't rebuild (and swallow clicks) when nothing changed
       S.bookingsSig = sig;
@@ -905,16 +937,38 @@ async function refreshPanel(full = false) {
 }
 setInterval(() => { if (S.panel && !S.busy) refreshPanel(); }, 2000);
 
+/* Under each "Verified: booking BK-…" note: calendar, email and cancel actions for that booking. */
+async function fillBookingActions(root = document) {
+  const slots = [...root.querySelectorAll('.chat-acts[data-booking]')]; if (!slots.length) return;
+  let r; try { r = await api('/api/bookings'); } catch { return; }
+  const byId = Object.fromEntries(r.bookings.map(b => [b.booking_id, b]));
+  for (const el of slots) {
+    const b = byId[el.dataset.booking]; if (!b) { el.remove(); continue; }
+    const id = esc(b.booking_id), btns = [];
+    if (r.google && b.on_calendar) btns.push(`<button class="bk-act" data-act="cal-remove" data-id="${id}">${ICON.calx}Remove from calendar</button>`);
+    else if (r.google && b.upcoming && b.status === 'confirmed') btns.push(`<button class="bk-act" data-act="cal-add" data-id="${id}">${ICON.calplus}Add to calendar</button>`);
+    if (r.google && ['confirmed', 'cancelled', 'cancelled_by_provider'].includes(b.status)) btns.push(`<button class="bk-act" data-act="email" data-id="${id}">${ICON.mail}Resend email</button>`);
+    if (b.upcoming && b.status === 'confirmed') btns.push(`<button class="bk-act danger" data-act="cancel" data-id="${id}">${ICON.ban}Cancel booking</button>`);
+    else if (b.status !== 'confirmed') btns.push(`<span class="bk-state">${esc(b.status.replace(/_/g, ' '))}</span>`);
+    el.innerHTML = btns.join('');
+    el.querySelectorAll('.bk-act').forEach(btn => btn.onclick = () => bookingAction(btn));
+  }
+}
+
 async function bookingAction(btn) {
+  if (btn.dataset.act === 'cancel') {  // a cancellation is a booking change: it goes through the agent and needs approval
+    if (S.busy) return toast('Wait for the current reply to finish');
+    return send(`Cancel booking ${btn.dataset.id}`);
+  }
   const id = btn.dataset.id, act = btn.dataset.act;
   if (act === 'cal-remove' && !confirm(`Remove booking ${id} from your Google Calendar? The booking itself stays.`)) return;
-  const label = btn.textContent; btn.disabled = true; btn.textContent = 'Working…';
+  const labelHtml = btn.innerHTML; btn.disabled = true; btn.textContent = 'Working…';
   try {
     if (act === 'email') { const r = await api(`/api/bookings/${id}/email`, { method: 'POST' }); toast(`Email sent to ${r.sent_to}`); }
     else if (act === 'cal-add') { await api(`/api/bookings/${id}/calendar`, { method: 'POST' }); toast('Added to your Google Calendar'); }
     else { await api(`/api/bookings/${id}/calendar`, { method: 'DELETE' }); toast('Removed from your Google Calendar'); }
-    refreshPanel(true);
-  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = label; }
+    refreshPanel(true); fillBookingActions();
+  } catch (e) { toast(e.message); btn.disabled = false; btn.innerHTML = labelHtml; }
 }
 
 /* ====================================================================== chrome */
@@ -1078,7 +1132,7 @@ async function openVoice() {
   const pick = { speaker: cur.speaker, pace: cur.pace, style: cur.style };
   const body = $('.voice-body', back);
   body.innerHTML = `<div class="voice-label">Voice</div><div class="voice-grid">${cur.voices.map(v => `<div class="voice-chip${v === pick.speaker ? ' on' : ''}" data-v="${v}">
-      <button class="vc-name">${esc(v[0].toUpperCase() + v.slice(1))}</button>${cur.preview_available ? `<button class="vc-play" title="Preview" aria-label="Preview ${esc(v)}">▶</button>` : ''}</div>`).join('')}</div>
+      <button class="vc-name">${esc(v[0].toUpperCase() + v.slice(1))}</button>${cur.preview_available ? `<button class="vc-play" title="Preview" aria-label="Preview ${esc(v)}">${ICON.play}</button>` : ''}</div>`).join('')}</div>
     <div class="voice-label">Speaking speed <span class="voice-val">${pick.pace.toFixed(2)}×</span></div>
     <input type="range" class="voice-pace" min="${cur.pace_range[0]}" max="${cur.pace_range[1]}" step="0.05" value="${pick.pace}">
     <div class="voice-label">Style</div><div class="voice-styles">${Object.entries(cur.styles).map(([k, label]) => `<label class="vstyle"><input type="radio" name="vstyle" value="${k}" ${k === pick.style ? 'checked' : ''}><span>${esc(label)}</span></label>`).join('')}</div>`;

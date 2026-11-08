@@ -1,4 +1,6 @@
-# Errand Agent
+# Sorted — home services, sorted
+
+*Sorted* is this project's product name; the assignment it implements is the **Sorted Agent**, which is why the Python package is still `errand_agent` and settings use `ERRAND_*`. The name lives in one place, `errand_agent/brand.py` (`APP_NAME` overrides it), and everything you see or hear uses it: the app, emails, calendar events, voice greetings, the Sarvam phone agent and the LiveKit agent (`sorted-voice`).
 
 A chat agent that arranges home-service errands (plumber, electrician, AC servicing, …) against a local mock provider service. It asks only for details you haven't given, compares providers and holds a slot. It books, cancels or reschedules only after you approve the exact details, and it recovers safely from provider failures. An LLM (via LiteLLM) drives the conversation and tool use; **application code** enforces approvals, idempotency, memory gating and limits.
 
@@ -37,13 +39,16 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 - **Conversation:** formatted replies. Approval requests show as a card with **Approve** and **Change something** buttons. Verified, error and warning results appear as coloured notes. A live activity line ("Searching providers…", "Holding a slot…") shows while the agent works, and each reply has a collapsible list of the steps it took. Proactive and after-restart messages are labelled.
 - **Side panel:** tabs for **Trace** (live events for this chat, filterable, click to expand), **Memory** (stated vs inferred facts, with a Forget button on each) and **Bookings**. Deep-link one with `#/c/<chat id>?panel=memory`.
 - **Model picker** (in the message box, or the model pill in the top bar): choose the model for each chat, and switch mid-conversation. The list is your LiteLLM proxy's chat models that support tool calling (`/model_group/info`), grouped by company with its logo and prices per 1M tokens. The logos are in `static/logos/`, taken from the MIT-licensed [@lobehub/icons](https://github.com/lobehub/lobe-icons). `ERRAND_MODELS` limits it to a list you choose. Each reply shows which model wrote it, and the trace records a `model_switched` event plus per-call cost from the proxy's prices. If the proxy rejects a model (for example *Model is blocked* for your key), the reply says so, any approval you already gave is kept, and the model is greyed out in the picker.
-- **Voice calls** (mic button next to Send): talk to Errand over LiveKit. See *Voice agent* below.
+- **Voice calls** (mic button next to Send): talk to Sorted over LiveKit. See *Voice agent* below.
 - **Demo menu** (sliders icon): make the next booking time out after succeeding, make the next hold quote ₹300 more, have a provider cancel a booking, or restart the agent process.
+- **Booking actions:** under every verified booking in a chat, and in the Bookings panel: **Remove from calendar** / **Add to calendar**, **Resend email** and **Cancel booking**. Calendar and email actions never change the booking. *Cancel* sends "Cancel booking BK-…" to the agent, so it goes through the normal approval card like any other change.
+- **Voice** (user menu): pick who answers your calls from Sarvam's 37 `bulbul:v3` voices (▶ previews each one in your name), the speaking speed and a style (Warm / Brisk). The assistant takes the voice's name (“Hi Shubham, Kavya here from Sorted”). It always says it's an AI if asked, and is used for browser calls and spoken replies on the phone. Settings are stored on your profile.
+- **Icons:** status notes, call markers and buttons use SVG icons. Stored messages keep short markers (✅ ⚠️ 📅 …) that the page draws as icons, and voice strips them.
 - **Appearance:** light, dark or system theme. Works on phones. The logo, favicon and Apple touch icon (the little house mascot in `static/brand/`) were generated with Meta's Muse Image (`muse-image-1.0`). The original is kept as `source-muse-image.webp`.
 
 ## Voice agent
 
-`errand_agent/voice.py` is a LiveKit agent worker. It handles three kinds of call: **browser calls**, **inbound phone calls** (you ring Errand) and **outbound phone calls** (Errand rings you).
+`errand_agent/voice.py` is a LiveKit agent worker. It handles three kinds of call: **browser calls**, **inbound phone calls** (you ring Sorted) and **outbound phone calls** (Sorted rings you).
 
 - **Speech:** when `secrets/sarvam.env` has a `SARVAM_API_KEY`, calls use **Sarvam**: `saaras:v4` speech-to-text and `bulbul:v3` text-to-speech, voice *kavya*. Sarvam handles Indian English, Hindi and Hinglish. Without a Sarvam key, calls use LiveKit Inference (`deepgram/nova-3` and `cartesia/sonic-3`).
 - **Thinking (LLM):** spoken turns, both in the browser and on the phone, use **Sarvam's own LLM** by default: `sarvam/sarvam-105b-conversations`. It's called directly at `api.sarvam.ai` with `SARVAM_API_KEY`, not through the LiteLLM proxy. It handles tool calling and replies in under a second, which is what a live call needs. Typed turns in the same chat keep the chat's model, and each reply is tagged with the model that wrote it.
@@ -65,7 +70,7 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 
 ### Phone calls via Sarvam (your number +91 80000 00000)
 
-The number is rented from **Sarvam Voice Agents**, so Sarvam runs the phone line: telephony, speech and Indian languages. Errand stays the brain:
+The number is rented from **Sarvam Voice Agents**, so Sarvam runs the phone line: telephony, speech and Indian languages. Sorted stays the brain:
 
 - **Relay agent:** the Sarvam agent is a thin relay. Every caller turn goes to its one HTTP tool, `errand_turn`, which posts to `/api/sarvam/turn`. The agent then speaks back the reply. Approvals, idempotent booking, memory, limits and the trace work exactly as in chat.
 - **Inbound:** a Sarvam inbound deployment links the number to the agent. Only your registered number (user menu → *Phone number*) is served; any other caller is told so and the call ends. Each call becomes a *Phone call · …* chat.
@@ -80,8 +85,8 @@ The number is rented from **Sarvam Voice Agents**, so Sarvam runs the phone line
 
 ### Phone calls through LiveKit SIP (alternative)
 
-- **Inbound:** you ring the Errand number. A LiveKit dispatch rule puts the call in its own room and dispatches the agent. **Only your registered number is accepted** (user menu → *Phone number*); any other caller hears "this line only serves registered Errand users" and is hung up on. Each accepted call becomes a new chat, *Phone call · <date time>*.
-- **Outbound:** Errand rings you. Click the phone icon in the top bar, or accept the offer above the message box, which appears when Errand still needs details: *"Quicker to talk it through? 📞 Call my phone · 🎙 Talk here"*.
+- **Inbound:** you ring the Sorted number. A LiveKit dispatch rule puts the call in its own room and dispatches the agent. **Only your registered number is accepted** (user menu → *Phone number*); any other caller hears "this line only serves registered Sorted users" and is hung up on. Each accepted call becomes a new chat, *Phone call · <date time>*.
+- **Outbound:** Sorted rings you. Click the phone icon in the top bar, or accept the offer above the message box, which appears when Sorted still needs details: *"Quicker to talk it through? 📞 Call my phone · 🎙 Talk here"*.
   - The call continues **the same chat**, and opens with a briefing built by code from the chat's state. If an approval is pending it reads it out: "…To confirm: book Volt Bros on Monday 9 November at 11 AM for 820 rupees. Say yes to confirm."
   - If you don't answer, the chat says so.
 - **History:** every call writes markers into its chat ("📞 Calling +91•••210…", "Phone call connected", "📞 Phone call ended · 1m 15s"). Spoken turns are tagged *Said on the phone* and *Spoken on the phone*.
@@ -107,17 +112,20 @@ Run it with `python -m errand_agent.server --voice` (one command; the worker run
 
 ## Connectors (Google Calendar + Gmail)
 
-Open **Connectors** from the user menu and click **Connect Google**. One sign-in covers both products. Errand asks for these scopes:
+Booking emails are branded HTML with a plain-text fallback and the logo attached inline, so no remote images are loaded. There are four kinds: booked, moved (old time struck through), cancelled, and cancelled by the provider. Each one includes the provider, time, area, price and booking ID. Preview them at `http://127.0.0.1:8765/api/connectors/email/preview?kind=booked|rescheduled|cancelled|provider_cancelled`.
+
+
+Open **Connectors** from the user menu and click **Connect Google**. One sign-in covers both products. Sorted asks for these scopes:
 
 - `calendar.freebusy`: busy times only;
-- `calendar.events`: only events Errand creates;
+- `calendar.events`: only events Sorted creates;
 - `gmail.send`: emails to yourself.
 
 The rules are enforced in code (`errand_agent/connectors/hub.py`):
 
-- **Before proposing a slot**, Errand reads your free/busy times and skips any slot that overlaps a busy block. If Google is down, every slot is offered as before.
+- **Before proposing a slot**, Sorted reads your free/busy times and skips any slot that overlaps a busy block. If Google is down, every slot is offered as before.
 - **Reading your schedule:** ask "what's on tomorrow?" and the agent calls the read-only `get_calendar` tool. Event titles are treated as data, never as instructions.
-- **Only after a verified booking change** does Errand write anything. It creates the event when a booking is made, moves it on reschedule and deletes it on cancellation. If the provider cancels, the event is marked "[Cancelled by provider]". It also emails you a confirmation.
+- **Only after a verified booking change** does Sorted write anything. It creates the event when a booking is made, moves it on reschedule and deletes it on cancellation. If the provider cancels, the event is marked "[Cancelled by provider]". It also emails you a confirmation.
 - **A failed booking writes nothing.** A Google outage never hides a confirmed booking.
 - **Each booking is written once.** A repeated "yes" doesn't create a second event or email.
 - **Each write can be switched off** in the modal.
@@ -148,7 +156,7 @@ Tests and evals use `FakeGoogle` and never reach Google. See `tests/test_connect
 | `tracing.py` | JSONL trace, PII redaction, cost estimates. |
 | `llm.py` | LiteLLM adapter (any provider or a LiteLLM proxy), record/replay. |
 | `models.py` | Model catalog for the picker (proxy `/model_group/info`, prices, blocked models). |
-| `voice.py`, `voice_text.py` | LiveKit voice worker: browser, inbound and outbound phone calls (STT → Errand server → TTS), speech-friendly text. |
+| `voice.py`, `voice_text.py` | LiveKit voice worker: browser, inbound and outbound phone calls (STT → Sorted server → TTS), speech-friendly text. |
 | `sarvam.py` | Sarvam Voice Agents bridge: agent spec, inbound deployment, instant outbound calls; server endpoints `/api/sarvam/turn` + `/webhook`. |
 | `telephony.py` | Creates the LiveKit SIP trunks and dispatch rule for a phone number, plus status, test-call and teardown commands. |
 | `server.py`, `static/index.html` | Web app: chats, model picker, voice calls, trace/memory/bookings panel. |

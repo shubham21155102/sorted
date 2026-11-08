@@ -21,6 +21,7 @@ CLI:
     python -m errand_agent.sarvam deploy-inbound      # link the number to the agent + webhook
     python -m errand_agent.sarvam call +91XXXXXXXXXX  # test an outbound call
     python -m errand_agent.sarvam agent-spec          # print the agent prompt + tool to create on Sarvam
+    python -m errand_agent.sarvam set-version <deployment_id> <n>   # move the live line to agent version n
 """
 from __future__ import annotations
 
@@ -151,6 +152,20 @@ def deploy_inbound() -> dict[str, Any]:
     })
 
 
+def set_deployment_version(deployment_id: str, version: int) -> dict[str, Any]:
+    """Point a live deployment at another committed agent version (and the current name).
+    Sarvam only edits paused deployments, so: pause -> edit -> resume (resume runs even if the edit fails)."""
+    status = lambda action: _request("deployments", "PUT", f"/deployments/{deployment_id}/status", {"action": action})
+    status("pause")
+    try:
+        _request("deployments", "PATCH", f"/deployments/{deployment_id}", {
+            "app_version": version, "name": f"{NAME} inbound",
+            "description": f"{NAME}: inbound line, every turn handled by the {NAME} server"})
+    finally:
+        status("resume")
+    return _request("deployments", "GET", f"/deployments/{deployment_id}")
+
+
 def main() -> None:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
     if cmd == "agent-spec":
@@ -169,6 +184,9 @@ def main() -> None:
         sys.exit(f"missing settings: {', '.join(missing)} (see README → Phone calls via Sarvam)")
     if cmd == "deploy-inbound":
         print(json.dumps(deploy_inbound(), indent=1))
+    elif cmd == "set-version":  # python -m errand_agent.sarvam set-version <deployment_id> <version>
+        d = set_deployment_version(sys.argv[2], int(sys.argv[3]))
+        print({k: d.get(k) for k in ("name", "app_version", "status")})
     elif cmd == "call":
         print("attempt_id:", place_call(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "sarvam-test",
                                         f"Hi, this is {NAME}. What needs doing at home?"))

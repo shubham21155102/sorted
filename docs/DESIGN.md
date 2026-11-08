@@ -1,4 +1,4 @@
-# Design note — Errand Agent
+# Design note — Errand Agent (shipped as *Sorted*)
 
 **Shape.** A single agent loop (`agent.py`). The LLM (via LiteLLM) reads the conversation and picks tools. Code owns the consequential parts: phase, approvals, idempotency, side-effect verification, memory gating, limits, and the status lines users see. More agents wouldn't make the hard problems (enforcement and correctness) any easier.
 

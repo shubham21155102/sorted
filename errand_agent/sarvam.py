@@ -139,7 +139,9 @@ def deploy_inbound() -> dict[str, Any]:
     e = env()
     return _request("deployments", "POST", "/deployments", {
         "name": "Errand inbound", "app_id": e["SARVAM_APP_ID"], "app_version": int(e["SARVAM_APP_VERSION"] or 1),
-        "connection_configs": [connection()],
+        # The live API wants a list of numbers per connection here (the docs show agent_phone_number).
+        "connection_configs": [{"connection_id": connection()["connection_id"],
+                                "phone_numbers": [connection()["agent_phone_number"]]}],
         "description": "Errand: inbound line, every turn handled by the Errand server",
         "inbound_config": {"start_time": "00:00", "end_time": "23:59", "timezone": "Asia/Kolkata",
                            "allowed_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",

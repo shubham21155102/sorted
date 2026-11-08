@@ -79,13 +79,16 @@ class App:
         row = self.reader.session(sid)
         return (row or {}).get("model") or self.default_model()
 
-    def agent(self, sid: str, channel: str = "chat") -> ErrandAgent:
-        """The chat's agent, on the chat's model. Spoken turns (voice / phone) use the voice model
-        (Sarvam's LLM by default) for that turn; the next typed turn switches back."""
+    def agent(self, sid: str, channel: str | None = None) -> ErrandAgent:
+        """The chat's agent. A turn (channel given) runs on the chat's model, except spoken turns
+        (voice / phone), which use the voice model (Sarvam's LLM by default); the next typed turn
+        switches back. Without a channel (briefs, inspection) an existing agent's model is left alone."""
         with self.lock:
             model = self.session_model(sid)
             if channel in ("voice", "phone") and self.kind == "litellm":
                 model = voice_model() or model
+            if sid in self.agents and channel is None:
+                return self.agents[sid]
             if sid not in self.agents:
                 self.agents[sid] = make_agent(self.store, self.world, self.llm_for(model), model, sid, USER_ID,
                                               self.trace_path, connectors=self.hub)
@@ -543,7 +546,8 @@ def make_handler(app: App):
                 if agent.last_model_error and model_error_kind(agent.last_model_error) in ("model_blocked", "model_not_found"):
                     app.catalog.mark_blocked(agent.model_name, "blocked for this key" if "blocked" in
                                              model_error_kind(agent.last_model_error) else "not found")
-            self._json({"reply": reply, "count": len(app.reader.messages(sid)), "model": agent.model_name})
+                used = agent.model_name  # read under the lock: another request may switch it right after
+            self._json({"reply": reply, "count": len(app.reader.messages(sid)), "model": used})
 
         def trace(self, sid: str) -> None:
             ev = app.trace(sid, int(self.q.get("since", 0)))
@@ -564,7 +568,7 @@ def make_handler(app: App):
                     app.store.create_session(sid, USER_ID, now())
                     app.store.set_session_model(sid, b["model"])
                     if sid in app.agents:
-                        app.agent(sid)  # applies the switch and traces it
+                        app.agent(sid, "chat")  # applies the switch and traces it
             self._json({"ok": True, "model": app.session_model(sid)})
 
         def delete(self, sid: str) -> None:

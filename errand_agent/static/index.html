@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Errand</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/brand/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.23.0/dist/livekit-client.umd.min.js"></script>
@@ -67,6 +70,8 @@ svg { display: block; }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; letter-spacing: -.01em; flex: 1; }
 .brand-mark { width: 24px; height: 24px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; }
 .brand-mark svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.2; fill: none; }
+.brand-mark.img, .mark.img { background: none; overflow: hidden; }
+.brand-mark.img img, .mark.img img { width: 100%; height: 100%; display: block; -webkit-user-drag: none; user-select: none; pointer-events: none; }
 .new-chat { margin: 8px 10px 6px; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; font-weight: 500; color: var(--ink); }
 .new-chat:hover { background: var(--hover); }
 .new-chat .plus { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; }
@@ -162,6 +167,9 @@ svg { display: block; }
 .thinking .label b { font-weight: 500; color: var(--ink-2); background: linear-gradient(90deg, var(--ink-2) 0%, var(--muted) 50%, var(--ink-2) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 1.6s linear infinite; }
 @keyframes pulse { 50% { opacity: .65; } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes bob { 0%, 100% { transform: translateY(0) rotate(0); } 25% { transform: translateY(-2px) rotate(-6deg); } 75% { transform: translateY(-2px) rotate(6deg); } }
+.thinking .mark.img { animation: bob 1.1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .thinking .mark.img { animation: none; } }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
 /* composer */
@@ -359,7 +367,7 @@ button.model-pill:hover { color: var(--ink); border-color: var(--line-2); }
 <div class="app" id="app">
   <aside class="sidebar" id="sidebar">
     <div class="sb-head">
-      <div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>Errand</div>
+      <div class="brand"><span class="brand-mark img"><img src="/static/brand/logo-128.png" alt="" draggable="false"></span>Errand</div>
       <button class="icon-btn" id="collapse" title="Close sidebar"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
     </div>
     <button class="new-chat" id="new-chat"><span class="plus"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>New chat</button>
@@ -419,6 +427,7 @@ const S = { user: null, model: '', sessions: [], sid: null, count: 0, busy: fals
             models: [], defaultModel: 'scripted', chatModel: null, homeModel: null };
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
+const LOGO_IMG = '<img src="/static/brand/logo-128.png" alt="" draggable="false">';
 const ICON = {
   mark: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   dots: '<svg class="icon" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>',
@@ -686,7 +695,7 @@ function renderHome() {
   S.sid = null; S.count = 0; S.chatModel = null; setTitle(); renderSessions(); syncModelUI();
   const v = $('#view'); v.innerHTML = '';
   const hero = document.createElement('div'); hero.className = 'hero';
-  hero.innerHTML = `<h1><span class="brand-mark">${ICON.mark}</span>${greeting()}, ${esc(S.user?.name || 'there')}</h1>`;
+  hero.innerHTML = `<h1><span class="brand-mark img">${LOGO_IMG}</span>${greeting()}, ${esc(S.user?.name || 'there')}</h1>`;
   const c = composer(async text => {
     const { id } = await api('/api/sessions', { method: 'POST', body: { model: currentModel() } });
     S.pendingFirst = text; location.hash = `#/c/${id}`;
@@ -729,7 +738,7 @@ function appendMessage(m, { interactive = false, steps = null } = {}) {
               : m.kind === 'phone' ? `<div class="tag voice">${ICON.phone}Spoken on the phone</div>` : '';
     const stepsHtml = steps && steps.length ? `<details class="steps"><summary>${ICON.chev}${steps.length} step${steps.length > 1 ? 's' : ''}</summary><ol>${
       steps.map(s => `<li class="${s.blocked ? 'blocked' : ''}">${esc(s.text)}${s.blocked ? ' — blocked: needs your approval' : ''}</li>`).join('')}</ol></details>` : '';
-    el.innerHTML = `<div class="mark">${ICON.mark}</div><div class="body">${tag}${stepsHtml}${renderAssistant(m.content, { interactive })}
+    el.innerHTML = `<div class="mark img">${LOGO_IMG}</div><div class="body">${tag}${stepsHtml}${renderAssistant(m.content, { interactive })}
       <div class="msg-actions"><button class="icon-btn" data-act="copy" title="Copy">${ICON.copy}</button>${m.model ? `<span class="model-tag">${esc(modelLabel(m.model))}</span>` : ''}</div></div>`;
     el.querySelector('[data-act=copy]').onclick = async e => { await navigator.clipboard.writeText(m.content);
       const b = e.currentTarget; b.innerHTML = ICON.check; setTimeout(() => b.innerHTML = ICON.copy, 1200); };
@@ -748,7 +757,7 @@ async function send(text) {
   const sid = S.sid; S.busy = true; S.composer?.refresh();
   appendMessage({ role: 'user', content: text }); S.count++;
   const thinking = document.createElement('div'); thinking.className = 'thinking';
-  thinking.innerHTML = `<div class="mark">${ICON.mark}</div><div class="label"><b>Thinking…</b></div>`;
+  thinking.innerHTML = `<div class="mark img">${LOGO_IMG}</div><div class="label"><b>Thinking…</b></div>`;
   $('#thread').appendChild(thinking); scrollDown();
   const { events } = await api(`/api/sessions/${sid}/trace?since=0`); let since = events.length;
   const steps = [];

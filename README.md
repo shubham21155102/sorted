@@ -39,7 +39,7 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 - **Model picker** (in the message box, or the model pill in the top bar): choose the model for each chat, and switch mid-conversation. The list is your LiteLLM proxy's chat models that support tool calling (`/model_group/info`), grouped by company with its logo and prices per 1M tokens. The logos are in `static/logos/`, taken from the MIT-licensed [@lobehub/icons](https://github.com/lobehub/lobe-icons). `ERRAND_MODELS` limits it to a list you choose. Each reply shows which model wrote it, and the trace records a `model_switched` event plus per-call cost from the proxy's prices. If the proxy rejects a model (for example *Model is blocked* for your key), the reply says so, any approval you already gave is kept, and the model is greyed out in the picker.
 - **Voice calls** (mic button next to Send): talk to Errand over LiveKit. See *Voice agent* below.
 - **Demo menu** (sliders icon): make the next booking time out after succeeding, make the next hold quote ₹300 more, have a provider cancel a booking, or restart the agent process.
-- **Appearance:** light, dark or system theme. Works on phones.
+- **Appearance:** light, dark or system theme. Works on phones. The logo, favicon and Apple touch icon (the little house mascot in `static/brand/`) were generated with Meta's Muse Image (`muse-image-1.0`). The original is kept as `source-muse-image.webp`.
 
 ## Voice agent
 

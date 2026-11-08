@@ -145,7 +145,8 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/api/models$", "models"),
     ("GET", r"^/api/voice/config$", "voice_config"),
     ("GET", r"^/api/profile$", "get_profile"),
-    ("GET", r"^/static/logos/(?P<name>[a-z0-9-]+)\.svg$", "logo"),
+    ("GET", r"^/static/(?P<folder>logos|brand)/(?P<name>[a-z0-9-]+\.(?:svg|png|ico))$", "asset"),
+    ("GET", r"^/favicon\.ico$", "favicon"),
     ("GET", r"^/api/connectors$", "connectors"),
     ("GET", r"^/api/connectors/google/connect$", "google_connect"),
     ("GET", r"^/api/connectors/google/callback$", "google_callback"),
@@ -233,17 +234,24 @@ def make_handler(app: App):
             self._route("PUT")
 
         # -------------------------------------------------------- handlers
-        def logo(self, name: str) -> None:  # model-company logos for the picker (name is [a-z0-9-] only)
-            path = os.path.join(os.path.dirname(STATIC), "logos", name + ".svg")
+        ASSET_TYPES = {"svg": "image/svg+xml", "png": "image/png", "ico": "image/x-icon"}
+
+        def asset(self, folder: str, name: str) -> None:
+            """Images next to index.html: model-company logos and the Errand logo/favicons.
+            The route regex allows only [a-z0-9-] names in two fixed folders, so no path traversal."""
+            path = os.path.join(os.path.dirname(STATIC), folder, name)
             if not os.path.isfile(path):
                 return self._json({"error": "not found"}, 404)
             with open(path, "rb") as f:
                 body = f.read()
             self.send_response(200)
-            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Content-Type", self.ASSET_TYPES[name.rsplit(".", 1)[1]])
             self.send_header("Cache-Control", "public, max-age=86400")
             self.end_headers()
             self.wfile.write(body)
+
+        def favicon(self) -> None:
+            self.asset("brand", "favicon.ico")
 
         def index(self) -> None:
             with open(STATIC, "rb") as f:

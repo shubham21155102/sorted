@@ -11,6 +11,24 @@ from .seed import seed_all
 from .store import Store
 
 
+def load_dotenv(path: str = ".env") -> None:
+    """Minimal .env loader (KEY=VALUE lines). Existing environment variables win; empty values are skipped."""
+    if not os.path.exists(path):
+        return
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            value = value.strip().strip('"').strip("'")
+            if value and key.strip() not in os.environ:
+                os.environ[key.strip()] = value
+
+
+load_dotenv()
+
+
 def make_llm(kind: str) -> Any:
     if kind == "scripted":
         from .scripted_model import ScriptedModel

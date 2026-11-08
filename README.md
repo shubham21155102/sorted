@@ -11,7 +11,7 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requi
 .venv/bin/python -m evals.run_evals           # 35 scenarios → docs/EVAL_RESULTS.md
 
 # live (real Claude); without a key both fall back to the offline scripted model
-export ANTHROPIC_API_KEY=...                  # optional: ERRAND_MODEL=claude-opus-5 (default)
+cp .env.example .env                          # then set ANTHROPIC_API_KEY (or export it)
 .venv/bin/python -m errand_agent.server --fresh   # http://127.0.0.1:8765  chat + live trace side by side
 .venv/bin/python -m errand_agent.cli --fresh      # terminal chat (/cancel BK-1002, /memories, /state)
 ```

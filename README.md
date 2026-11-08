@@ -3,7 +3,9 @@
 A chat agent that arranges home-service errands (plumber, electrician, AC servicing, …) against a local mock provider service. It asks only for details you haven't given, compares providers and holds a slot. It books, cancels or reschedules only after you approve the exact details, and it recovers safely from provider failures. Claude drives the conversation and tool use; **application code** enforces approvals, idempotency, memory gating and limits.
 
 ```
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python ≥ 3.10
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+# or: python3.12 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt   (needs Python ≥ 3.10;
+# a bare `pip` may resolve to an older system Python's pip outside the venv)
 
 .venv/bin/python -m pytest -q                 # 63 tests, offline, ~3s
 .venv/bin/python -m evals.run_evals           # 35 scenarios → docs/EVAL_RESULTS.md

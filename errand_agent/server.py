@@ -145,6 +145,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/api/models$", "models"),
     ("GET", r"^/api/voice/config$", "voice_config"),
     ("GET", r"^/api/profile$", "get_profile"),
+    ("GET", r"^/static/logos/(?P<name>[a-z0-9-]+)\.svg$", "logo"),
     ("GET", r"^/api/connectors$", "connectors"),
     ("GET", r"^/api/connectors/google/connect$", "google_connect"),
     ("GET", r"^/api/connectors/google/callback$", "google_callback"),
@@ -232,6 +233,18 @@ def make_handler(app: App):
             self._route("PUT")
 
         # -------------------------------------------------------- handlers
+        def logo(self, name: str) -> None:  # model-company logos for the picker (name is [a-z0-9-] only)
+            path = os.path.join(os.path.dirname(STATIC), "logos", name + ".svg")
+            if not os.path.isfile(path):
+                return self._json({"error": "not found"}, 404)
+            with open(path, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(body)
+
         def index(self) -> None:
             with open(STATIC, "rb") as f:
                 body = f.read()

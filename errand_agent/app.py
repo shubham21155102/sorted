@@ -36,8 +36,8 @@ def make_llm(kind: str) -> Any:
     if kind.startswith("replay:"):
         from .llm import ReplayLLM
         return ReplayLLM(kind.split(":", 1)[1])
-    from .llm import AnthropicLLM, RecordingLLM
-    llm = AnthropicLLM(model=os.environ.get("ERRAND_MODEL"))
+    from .llm import AnthropicLLM, LiteLLM, RecordingLLM
+    llm = LiteLLM() if kind == "litellm" else AnthropicLLM(model=os.environ.get("ERRAND_MODEL"))
     rec = os.environ.get("ERRAND_RECORD")
     return RecordingLLM(llm, rec) if rec else llm
 

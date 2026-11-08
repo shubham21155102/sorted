@@ -1,6 +1,7 @@
 """Model adapters.
 
 * AnthropicLLM  — real Claude via the official SDK (live runs, demo).
+* LiteLLM       — any provider/model through LiteLLM (or a LiteLLM proxy).
 * RecordingLLM / ReplayLLM — record a live session to JSONL and replay it offline.
 * The scripted policy model used by evals lives in scripted_model.py.
 
@@ -31,6 +32,7 @@ class ModelResponse:
     output_tokens: int
     model: str
     raw_content: Any = None  # blocks to append to the in-turn transcript
+    cost_usd: float | None = None  # provider-reported cost, when the adapter knows it (LiteLLM)
 
 
 @dataclass
@@ -118,3 +120,86 @@ class ReplayLLM:
               [{"type": "tool_use", "id": c.id, "name": c.name, "input": c.input} for c in calls]
         return ModelResponse(d["text"], calls, d["stop_reason"], d["input_tokens"], d["output_tokens"],
                              d["model"], raw)
+
+
+# ------------------------------------------------------------------ LiteLLM
+def to_openai_messages(system: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert the agent's Anthropic-style transcript (text / tool_use / tool_result blocks)
+    into the OpenAI chat format LiteLLM expects."""
+    out: list[dict[str, Any]] = [{"role": "system", "content": system}]
+    for m in messages:
+        content = m["content"]
+        if isinstance(content, str):
+            out.append({"role": m["role"], "content": content})
+            continue
+        blocks = [b if isinstance(b, dict) else b.model_dump() for b in content]
+        if m["role"] == "assistant":
+            text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+            calls = [{"id": b["id"], "type": "function",
+                      "function": {"name": b["name"], "arguments": json.dumps(b.get("input") or {})}}
+                     for b in blocks if b.get("type") == "tool_use"]
+            msg: dict[str, Any] = {"role": "assistant", "content": text or None}
+            if calls:
+                msg["tool_calls"] = calls
+            out.append(msg)
+        else:
+            for b in blocks:
+                if b.get("type") == "tool_result":
+                    c = b.get("content")
+                    out.append({"role": "tool", "tool_call_id": b["tool_use_id"],
+                                "content": c if isinstance(c, str) else json.dumps(c)})
+                elif b.get("type") == "text":
+                    out.append({"role": "user", "content": b["text"]})
+    return out
+
+
+def to_openai_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""),
+                                              "parameters": t["input_schema"]}} for t in tools]
+
+
+class LiteLLM:
+    """Any model LiteLLM supports, e.g. ERRAND_MODEL=anthropic/claude-opus-5, openai/gpt-4.1,
+    gemini/gemini-2.5-pro, or a LiteLLM proxy alias with LITELLM_API_BASE / LITELLM_API_KEY."""
+
+    def __init__(self, model: str | None = None, timeout_s: float = 60.0, completion_fn: Any = None):
+        import litellm  # imported lazily so offline evals don't need it
+
+        self.litellm = litellm
+        self.completion = completion_fn or litellm.completion
+        self.model = model or os.environ.get("ERRAND_MODEL") or "anthropic/claude-opus-5"
+        self.timeout_s = timeout_s
+        self.api_base = os.environ.get("LITELLM_API_BASE") or None
+        self.api_key = os.environ.get("LITELLM_API_KEY") or None
+
+    def complete(self, req: ModelRequest) -> ModelResponse:
+        kwargs: dict[str, Any] = dict(model=self.model, messages=to_openai_messages(req.system, req.messages),
+                                      tools=to_openai_tools(req.tools), max_tokens=8000, timeout=self.timeout_s,
+                                      num_retries=2)
+        if self.api_base:
+            kwargs["api_base"] = self.api_base
+        if self.api_key:
+            kwargs["api_key"] = self.api_key
+        resp = self.completion(**kwargs)
+        choice = resp.choices[0]
+        msg = choice.message
+        text = msg.content or ""
+        calls = []
+        for tc in msg.tool_calls or []:
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {"_invalid_json": tc.function.arguments}  # surfaced to the model as invalid_arguments
+            calls.append(ToolCall(tc.id, tc.function.name, args if isinstance(args, dict) else {}))
+        raw = ([{"type": "text", "text": text}] if text else []) + \
+              [{"type": "tool_use", "id": c.id, "name": c.name, "input": c.input} for c in calls]
+        usage = getattr(resp, "usage", None)
+        try:
+            cost = float(self.litellm.completion_cost(completion_response=resp))
+        except Exception:
+            cost = None
+        return ModelResponse(text=text, tool_calls=calls,
+                             stop_reason="tool_use" if calls else (choice.finish_reason or "end_turn"),
+                             input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+                             output_tokens=getattr(usage, "completion_tokens", 0) or 0,
+                             model=getattr(resp, "model", None) or self.model, raw_content=raw, cost_usd=cost)

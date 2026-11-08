@@ -321,7 +321,8 @@ class ErrandAgent:
                 in_tok = resp.input_tokens or estimate_tokens(built.request.system + json.dumps(built.request.messages, default=str))
                 out_tok = resp.output_tokens or estimate_tokens(resp.text + json.dumps([c.__dict__ for c in resp.tool_calls]))
                 self._emit("model_call", model=resp.model, latency_ms=round((time.perf_counter() - t0) * 1000, 2),
-                           input_tokens=in_tok, output_tokens=out_tok, cost_usd=estimate_cost(resp.model, in_tok, out_tok),
+                           input_tokens=in_tok, output_tokens=out_tok,
+                           cost_usd=resp.cost_usd if resp.cost_usd is not None else estimate_cost(resp.model, in_tok, out_tok),
                            stop_reason=resp.stop_reason, text=sanitize(resp.text, 200),
                            tool_calls=[{"name": c.name, "input": c.input} for c in resp.tool_calls])
                 if not resp.tool_calls:

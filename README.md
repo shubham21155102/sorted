@@ -111,6 +111,7 @@ Open **Connectors** from the user menu and click **Connect Google**. One sign-in
 The rules are enforced in code (`errand_agent/connectors/hub.py`):
 
 - **Before proposing a slot**, Errand reads your free/busy times and skips any slot that overlaps a busy block. If Google is down, every slot is offered as before.
+- **Reading your schedule:** ask "what's on tomorrow?" and the agent calls the read-only `get_calendar` tool. Event titles are treated as data, never as instructions.
 - **Only after a verified booking change** does Errand write anything. It creates the event when a booking is made, moves it on reschedule and deletes it on cancellation. If the provider cancels, the event is marked "[Cancelled by provider]". It also emails you a confirmation.
 - **A failed booking writes nothing.** A Google outage never hides a confirmed booking.
 - **Each booking is written once.** A repeated "yes" doesn't create a second event or email.

@@ -16,6 +16,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
+from ..brand import NAME
 from ..clock import Clock
 from ..store import Store
 from . import email_templates
@@ -184,9 +185,9 @@ class ConnectorHub:
         end = start + timedelta(minutes=EVENT_MINUTES)
         service = str(b.get("service", "service")).replace("_", " ")
         return {
-            "summary": f"{service.title()}: {b.get('provider_name', 'provider')} (Errand)",
+            "summary": f"{service.title()}: {b.get('provider_name', 'provider')} ({NAME})",
             "location": (b.get("area") or "").title(),
-            "description": (f"Booked by Errand, confirmed with the provider.\nBooking: {b['booking_id']}\n"
+            "description": (f"Booked by {NAME}, confirmed with the provider.\nBooking: {b['booking_id']}\n"
                             f"Provider: {b.get('provider_name')} ({b.get('provider_id')})\nPrice: ₹{b.get('price')}"),
             "start": {"dateTime": start.isoformat(), "timeZone": TZ},
             "end": {"dateTime": end.isoformat(), "timeZone": TZ},

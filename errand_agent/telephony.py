@@ -28,9 +28,10 @@ import sys
 from livekit import api
 
 from .app import load_dotenv
+from .brand import SLUG
 
 ENV_PATH = os.path.join("secrets", "telephony.env")
-AGENT_NAME = "errand-voice"
+AGENT_NAME = f"{SLUG}-voice"
 
 
 def _client() -> api.LiveKitAPI:
@@ -64,11 +65,11 @@ async def setup(a: argparse.Namespace) -> None:
     try:
         if not a.outbound_only:
             trunk = await lk.sip.create_inbound_trunk(api.CreateSIPInboundTrunkRequest(trunk=api.SIPInboundTrunkInfo(
-                name="errand-inbound", numbers=[a.number], krisp_enabled=True)))
+                name=f"{SLUG}-inbound", numbers=[a.number], krisp_enabled=True)))
             rule = await lk.sip.create_dispatch_rule(api.CreateSIPDispatchRuleRequest(
-                name="errand-inbound", trunk_ids=[trunk.sip_trunk_id],
+                name=f"{SLUG}-inbound", trunk_ids=[trunk.sip_trunk_id],
                 rule=api.SIPDispatchRule(dispatch_rule_individual=api.SIPDispatchRuleIndividual(
-                    room_prefix="errand-phone-")),
+                    room_prefix=f"{SLUG}-phone-")),
                 room_config=api.RoomConfiguration(agents=[api.RoomAgentDispatch(
                     agent_name=AGENT_NAME, metadata=json.dumps({"mode": "inbound_phone"}))])))
             out["ERRAND_SIP_INBOUND_TRUNK_ID"] = trunk.sip_trunk_id
@@ -78,7 +79,7 @@ async def setup(a: argparse.Namespace) -> None:
             if not a.sip_address:
                 sys.exit("--sip-address is required for outbound calls (or pass --inbound-only)")
             trunk = await lk.sip.create_outbound_trunk(api.CreateSIPOutboundTrunkRequest(trunk=api.SIPOutboundTrunkInfo(
-                name="errand-outbound", address=a.sip_address, numbers=[a.number],
+                name=f"{SLUG}-outbound", address=a.sip_address, numbers=[a.number],
                 auth_username=a.sip_username or "", auth_password=a.sip_password or "")))
             out["ERRAND_SIP_OUTBOUND_TRUNK_ID"] = trunk.sip_trunk_id
             print(f"outbound trunk {trunk.sip_trunk_id} created")
@@ -138,7 +139,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m errand_agent.telephony")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("setup", help="create trunks + dispatch rule for a phone number")
-    s.add_argument("--number", required=True, help="the Errand phone number, E.164 (e.g. +918069XXXXXX)")
+    s.add_argument("--number", required=True, help="the app's phone number, E.164 (e.g. +918069XXXXXX)")
     s.add_argument("--sip-address", help="provider SIP host for outbound calls (e.g. xyz.pstn.twilio.com)")
     s.add_argument("--sip-username")
     s.add_argument("--sip-password")

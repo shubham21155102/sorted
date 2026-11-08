@@ -12,6 +12,7 @@ import argparse
 import json
 
 from .app import build
+from .brand import NAME
 
 
 def main() -> None:
@@ -21,7 +22,7 @@ def main() -> None:
     ap.add_argument("--fresh", action="store_true", help="wipe local state and reseed")
     args = ap.parse_args()
     agent = build(args.data, args.model, fresh=args.fresh)
-    print(f"Errand agent ({agent.model_name}). Trace: {args.data}/trace.jsonl. /quit to exit.")
+    print(f"{NAME} ({agent.model_name}). Trace: {args.data}/trace.jsonl. /quit to exit.")
     for m in agent.outbox:
         print(f"\nagent> {m}")
     while True:

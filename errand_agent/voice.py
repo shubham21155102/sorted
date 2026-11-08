@@ -33,6 +33,7 @@ from livekit.agents import Agent, AgentServer, AgentSession, JobContext, ModelSe
 
 from .app import load_dotenv
 from .voice_text import speakable
+from .brand import NAME, SLUG
 
 load_dotenv()
 load_dotenv("secrets/livekit.env")
@@ -40,7 +41,7 @@ load_dotenv("secrets/sarvam.env")
 load_dotenv("secrets/telephony.env")
 
 log = logging.getLogger("errand.voice")
-AGENT_NAME = "errand-voice"
+AGENT_NAME = f"{SLUG}-voice"
 SERVER = os.environ.get("ERRAND_SERVER_URL", "http://127.0.0.1:8765").rstrip("/")
 PROVIDER = os.environ.get("ERRAND_VOICE_PROVIDER") or ("sarvam" if os.environ.get("SARVAM_API_KEY") else "livekit")
 LANGUAGE = os.environ.get("ERRAND_VOICE_LANGUAGE", "en-IN")
@@ -94,7 +95,7 @@ class ErrandServerLLM(llm.LLM):
 
 class ErrandVoice(Agent):
     def __init__(self, session_id: str, channel: str):
-        super().__init__(instructions="Voice front-end for the Errand agent; replies come from the Errand server.")
+        super().__init__(instructions=f"Voice front-end for the {NAME} agent; replies come from the {NAME} server.")
         self.session_id = session_id
         self.channel = channel  # "voice" (browser) or "phone"
         self.turn_lock = asyncio.Lock()
@@ -200,24 +201,24 @@ async def entrypoint(ctx: JobContext) -> None:
             log.warning("inbound call from an unregistered number was rejected")
             session = make_session()
             await session.start(agent=ErrandVoice("", "phone"), room=ctx.room)
-            await session.say("Sorry, this line only serves registered Errand users. Goodbye.",
+            await session.say(f"Sorry, this line only serves registered {NAME} users. Goodbye.",
                               allow_interruptions=False)
             await hang_up(ctx)
             return
         session_id, channel = r["session_id"], "phone"
-        greeting = persona.get("greeting") or f"Hi {r.get('user_name', '')}, this is Errand. What can I sort out for you?"
+        greeting = persona.get("greeting") or f"Hi {r.get('user_name', '')}, this is {NAME}. What needs doing at home?"
         await note(session_id, "📞 Incoming phone call started")
     else:
         session_id = meta.get("session_id") or ctx.room.name.removeprefix("errand-").split("-out-")[0].rsplit("-", 1)[0]
         channel = "phone" if mode == "outbound_phone" else "voice"
-        greeting = persona.get("greeting") or "Hi, this is Errand. What can I sort out for you?"
+        greeting = persona.get("greeting") or f"Hi, this is {NAME}. What needs doing at home?"
         if mode == "outbound_phone":
             try:
                 b = await server_call("GET", f"/api/sessions/{session_id}/brief", None, 30)
-                greeting = (persona.get("outbound_greeting") or f"Hi {b.get('user_name', '')}, this is Errand.") + \
+                greeting = (persona.get("outbound_greeting") or f"Hi {b.get('user_name', '')}, this is {NAME}.") + \
                     " " + speakable(b.get("text", ""))
             except Exception:
-                greeting = "Hi, this is Errand, calling about your request. How can I help?"
+                greeting = f"Hi, this is {NAME}, calling about your request. How can I help?"
         else:
             await note(session_id, "🎙 Voice call started")
 

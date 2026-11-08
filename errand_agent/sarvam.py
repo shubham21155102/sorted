@@ -32,14 +32,15 @@ import urllib.request
 from typing import Any
 
 from .app import load_dotenv
+from .brand import NAME
 
 BASE = {"deployments": "https://apps.sarvam.ai/api/app-authoring",
         "outbounds": "https://apps.sarvam.ai/api/outbounds"}
 
-AGENT_PROMPT = """You are the phone line for Errand, an assistant that arranges home-service errands \
+AGENT_PROMPT = f"""You are the phone line for {NAME}, an assistant that arranges home-service errands \
 (plumbers, electricians, AC servicing, cleaning, carpentry, pest control) in Bangalore.
 
-You do not decide anything yourself. Errand's own system does all the work: it searches providers, \
+You do not decide anything yourself. {NAME}'s own system does all the work: it searches providers, \
 holds slots, asks for approval and books.
 
 On EVERY turn, as soon as the caller finishes speaking, call tool:errand_turn with `text` set to \
@@ -48,12 +49,12 @@ language). Then say the tool's reply to the caller exactly as returned, without 
 changing details, prices, dates or names. If the reply asks them to confirm, wait for their answer and \
 pass it to errand_turn as well; never confirm, book or cancel anything yourself.
 
-If the tool fails, say: "Sorry, I couldn't reach Errand just now. Nothing was booked. Please try again \
+If the tool fails, say: "Sorry, I couldn't reach {NAME} just now. Nothing was booked. Please try again \
 in a minute." If the tool reply contains end_call true, say the reply and end the call."""
 
 TOOL_SPEC = {
     "name": "errand_turn",
-    "description": "Send the caller's latest words to Errand and get back what to say. Call on every turn.",
+    "description": f"Send the caller's latest words to {NAME} and get back what to say. Call on every turn.",
     "when": "run (during conversation)",
     "method": "POST",
     "url": "{ERRAND_PUBLIC_URL}/api/sarvam/turn",
@@ -63,7 +64,7 @@ TOOL_SPEC = {
              "session_id": "@session_id (agent variable, set on outbound calls)"},
     "response_template": "{{say}}",
     "max_wait_seconds": 30,
-    "on_failure": "Sorry, I couldn't reach Errand just now. Nothing was booked.",
+    "on_failure": f"Sorry, I couldn't reach {NAME} just now. Nothing was booked.",
 }
 
 
@@ -138,11 +139,11 @@ def place_call(phone: str, session_id: str, first_line: str) -> str:
 def deploy_inbound() -> dict[str, Any]:
     e = env()
     return _request("deployments", "POST", "/deployments", {
-        "name": "Errand inbound", "app_id": e["SARVAM_APP_ID"], "app_version": int(e["SARVAM_APP_VERSION"] or 1),
+        "name": f"{NAME} inbound", "app_id": e["SARVAM_APP_ID"], "app_version": int(e["SARVAM_APP_VERSION"] or 1),
         # The live API wants a list of numbers per connection here (the docs show agent_phone_number).
         "connection_configs": [{"connection_id": connection()["connection_id"],
                                 "phone_numbers": [connection()["agent_phone_number"]]}],
-        "description": "Errand: inbound line, every turn handled by the Errand server",
+        "description": f"{NAME}: inbound line, every turn handled by the {NAME} server",
         "inbound_config": {"start_time": "00:00", "end_time": "23:59", "timezone": "Asia/Kolkata",
                            "allowed_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
                                             "Sunday"]},
@@ -170,7 +171,7 @@ def main() -> None:
         print(json.dumps(deploy_inbound(), indent=1))
     elif cmd == "call":
         print("attempt_id:", place_call(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "sarvam-test",
-                                        "Hi, this is Errand. What can I sort out for you?"))
+                                        f"Hi, this is {NAME}. What needs doing at home?"))
     else:
         sys.exit(f"unknown command {cmd}")
 

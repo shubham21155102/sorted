@@ -1,6 +1,6 @@
 """Booking emails: one template, four events (booked / moved / cancelled / cancelled by the provider).
 
-Every email is multipart: a plain-text part and an HTML part. The Errand logo is attached inline
+Every email is multipart: a plain-text part and an HTML part. The logo is attached inline
 (cid:errand-logo), so it shows without loading remote images. The HTML is table-based with inline styles,
 because that is what Gmail, Outlook and Apple Mail all render the same way.
 Values come from the provider service, so every one is HTML-escaped.
@@ -11,6 +11,7 @@ import html
 import os
 from datetime import datetime
 from typing import Any
+from ..brand import NAME
 
 LOGO_CID = "errand-logo"
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "static", "brand", "logo-128.png")
@@ -54,7 +55,7 @@ def render(kind: str, b: dict[str, Any], *, calendar: str | None = None) -> tupl
     new, old = when(b.get("slot")), when(b.get("old_slot"))
     title, lead, subject = {
         "booked": (f"Your {service} is booked",
-                   f"{provider} confirmed your visit. Errand checked the booking with the provider before sending this.",
+                   f"{provider} confirmed your visit. {NAME} checked the booking with the provider before sending this.",
                    f"Booked: {service.title()} with {provider} · {new}"),
         "rescheduled": (f"Your {service} visit has moved",
                         f"{provider} confirmed the new time.",
@@ -63,7 +64,7 @@ def render(kind: str, b: dict[str, Any], *, calendar: str | None = None) -> tupl
                       f"{provider} confirmed the cancellation.",
                       f"Cancelled: {service.title()} with {provider} · {new or old}"),
         "provider_cancelled": (f"{provider} cancelled your visit",
-                               "Sorry about this. Open Errand to pick a replacement. Nothing new is booked "
+                               f"Sorry about this. Open {NAME} to pick a replacement. Nothing new is booked "
                                "without your approval.",
                                f"{provider} cancelled your {service} visit · {new}"),
     }[kind]
@@ -85,10 +86,10 @@ def render(kind: str, b: dict[str, Any], *, calendar: str | None = None) -> tupl
         "removed": "It's been removed from your Google Calendar.",
         "marked": "It's marked as cancelled in your Google Calendar.",
     }.get(calendar or "")
-    tip = {"booked": "Need to change it? Just tell Errand, for example “move my plumber to Saturday”.",
-           "rescheduled": "Need another change? Just tell Errand.",
-           "cancelled": "Want to rebook? Just tell Errand when suits you.",
-           "provider_cancelled": "Reply in Errand with a day and time that suits you."}[kind]
+    tip = {"booked": f"Need to change it? Just tell {NAME}, for example “move my plumber to Saturday”.",
+           "rescheduled": f"Need another change? Just tell {NAME}.",
+           "cancelled": f"Want to rebook? Just tell {NAME} when suits you.",
+           "provider_cancelled": f"Reply in {NAME} with a day and time that suits you."}[kind]
 
     # ---------------------------------------------------------------- text
     text_lines = [title, "", lead, ""]
@@ -96,7 +97,7 @@ def render(kind: str, b: dict[str, Any], *, calendar: str | None = None) -> tupl
         text_lines.append(f"{label}: {value}" + (f" (was {was})" if was else ""))
     if cal_line:
         text_lines += ["", cal_line]
-    text_lines += ["", tip, "", "— Errand"]
+    text_lines += ["", tip, "", f"— {NAME}"]
     text = "\n".join(text_lines)
 
     # ---------------------------------------------------------------- html
@@ -124,9 +125,9 @@ def render(kind: str, b: dict[str, Any], *, calendar: str | None = None) -> tupl
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
     <tr><td style="padding:0 4px 16px">
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-        <td style="vertical-align:middle"><img src="cid:{LOGO_CID}" width="36" height="36" alt="Errand"
+        <td style="vertical-align:middle"><img src="cid:{LOGO_CID}" width="36" height="36" alt="{e(NAME)}"
             style="display:block;border:0;border-radius:9px"></td>
-        <td style="vertical-align:middle;padding-left:10px;font-size:18px;font-weight:700;color:{INK};letter-spacing:-.01em">Errand</td>
+        <td style="vertical-align:middle;padding-left:10px;font-size:18px;font-weight:700;color:{INK};letter-spacing:-.01em">{e(NAME)}</td>
       </tr></table>
     </td></tr>
     <tr><td style="background:#FFFFFF;border:1px solid {LINE};border-radius:16px;overflow:hidden">
@@ -146,8 +147,8 @@ def render(kind: str, b: dict[str, Any], *, calendar: str | None = None) -> tupl
       </table>
     </td></tr>
     <tr><td style="padding:16px 8px 0;font-size:12px;line-height:1.6;color:{MUTED};text-align:center">
-      Sent by Errand to your own address, because you turned on email confirmations in Connectors.<br>
-      Errand only books, moves or cancels after you approve the exact details.
+      Sent by {e(NAME)} to your own address, because you turned on email confirmations in Connectors.<br>
+      {e(NAME)} only books, moves or cancels after you approve the exact details.
     </td></tr>
   </table>
 </td></tr></table>

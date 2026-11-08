@@ -85,7 +85,7 @@ def test_busy_check_failure_falls_back_to_all_slots():
 def test_cancel_reschedule_and_provider_cancel_update_the_event():
     fake = FakeGoogle()
     agent, world, hub = make(fake)
-    # pretend the seeded AC booking was created by Errand earlier
+    # pretend the seeded AC booking was created by the app earlier
     agent.store.save_calendar_event("BK-1002", "u1", fake.insert_event({"summary": "AC"}), "t")
     notes = hub.on_rescheduled("BK-1002", "2026-11-14T14:00")
     assert notes[0]["text"].startswith("📅 Moved") and fake.events["evt1"]["start"]["dateTime"] == "2026-11-14T14:00:00"

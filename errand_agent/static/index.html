@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Errand</title>
+<title>__BRAND__</title>
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/brand/favicon-32.png">
 <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
@@ -385,7 +385,7 @@ button.model-pill:hover { color: var(--ink); border-color: var(--line-2); }
 <div class="app" id="app">
   <aside class="sidebar" id="sidebar">
     <div class="sb-head">
-      <div class="brand"><span class="brand-mark img"><img src="/static/brand/logo-128.png" alt="" draggable="false"></span>Errand</div>
+      <div class="brand"><span class="brand-mark img"><img src="/static/brand/logo-128.png" alt="" draggable="false"></span>__BRAND__</div>
       <button class="icon-btn" id="collapse" title="Close sidebar"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
     </div>
     <button class="new-chat" id="new-chat"><span class="plus"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>New chat</button>
@@ -431,7 +431,7 @@ button.model-pill:hover { color: var(--ink); border-color: var(--line-2); }
       <div class="composer-row">
         <button type="button" class="model-btn" title="Choose model"><span></span><svg class="icon" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></button>
         <span class="spacer"></span><span class="kbd">Enter to send</span>
-        <button type="button" class="call-btn" title="Talk to Errand (voice)" hidden><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></button>
+        <button type="button" class="call-btn" title="Talk to __BRAND__ (voice)" hidden><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></button>
         <button class="send" type="submit" disabled title="Send"><svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
       </div>
     </form>
@@ -445,7 +445,7 @@ const S = { user: null, model: '', sessions: [], sid: null, count: 0, busy: fals
             models: [], defaultModel: 'scripted', chatModel: null, homeModel: null };
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
-const BRAND = 'Errand';
+const BRAND = '__BRAND__';
 const LOGO_IMG = '<img src="/static/brand/logo-128.png" alt="" draggable="false">';
 const ICON = {
   mark: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
@@ -690,7 +690,7 @@ async function deleteChat(s) {
 function setTitle() {
   const s = S.sessions.find(x => x.id === S.sid);
   $('#chat-title').textContent = S.sid ? (s?.title || 'New chat') : '';
-  document.title = S.sid && s?.title ? `${s.title} — Errand` : 'Errand';
+  document.title = S.sid && s?.title ? `${s.title} — __BRAND__` : '__BRAND__';
 }
 async function newChat() { location.hash = ''; }
 
@@ -981,13 +981,13 @@ async function startCall() {
     room.on(RoomEvent.Disconnected, () => { if (S.call === call) endCall(true); });
     room.registerTextStreamHandler('lk.transcription', async (reader, info) => {
       const mine = info.identity === room.localParticipant.identity; let text = '';
-      for await (const chunk of reader) { text += chunk; caption(mine ? 'You' : 'Errand', text); }
+      for await (const chunk of reader) { text += chunk; caption(mine ? 'You' : '__BRAND__', text); }
     });
     await room.connect(url, token);
     await room.localParticipant.setMicrophoneEnabled(true);
     await room.startAudio();
     if (S.call !== call) { room.disconnect(); return; }
-    setState('initializing'); bar.querySelector('.call-caption').textContent = 'Waiting for Errand to join…';
+    setState('initializing'); bar.querySelector('.call-caption').textContent = 'Waiting for __BRAND__ to join…';
     const agentNow = [...room.remoteParticipants.values()].find(p => p.attributes?.['lk.agent.state']);
     if (agentNow) setState(agentNow.attributes['lk.agent.state']);
   } catch (err) {
@@ -1008,7 +1008,7 @@ window.addEventListener('beforeunload', () => { try { S.call?.room?.disconnect()
 function phoneDialog(after) {
   const back = document.createElement('div'); back.className = 'modal-back';
   back.innerHTML = `<div class="modal" role="dialog" aria-label="Your phone number"><h3>Your phone number</h3>
-    <p>Errand calls this number when you ask, and only this number can call Errand's line.</p>
+    <p>__BRAND__ calls this number when you ask, and only this number can call __BRAND__'s line.</p>
     <input inputmode="tel" placeholder="+91 98765 43210" value="${esc(S.voice?.user_phone || '')}"><div class="err"></div>
     <div class="row"><button class="btn" data-a="cancel">Cancel</button><button class="btn primary" data-a="save">Save</button></div></div>`;
   document.body.appendChild(back);
@@ -1035,7 +1035,7 @@ async function callMyPhone() {
   catch (e) { toast(e.message.includes('no_phone') ? 'Add your phone number first' : `Couldn't place the call: ${e.message}`); }
 }
 $('#phone-btn').onclick = () => callMyPhone();
-/* Offer a call when Errand still needs details from you: talking is faster than typing them. */
+/* Offer a call when __BRAND__ still needs details from you: talking is faster than typing them. */
 const offerDismissed = new Set();
 function hideOffer(dismiss) { if (dismiss && S.sid) offerDismissed.add(S.sid); document.querySelector('.call-offer')?.remove(); }
 function maybeOffer(state) {
@@ -1104,7 +1104,7 @@ async function openConnectors(flash) {
   document.querySelector('.modal-back.conn-back')?.remove();
   const back = document.createElement('div'); back.className = 'modal-back conn-back';
   back.innerHTML = `<div class="modal conn-modal" role="dialog" aria-label="Connectors"><h3>${ICON.plug} Connectors</h3>
-    <p>Accounts and services Errand works with. Calendar and email are only touched after a booking change is confirmed with the provider.</p><div class="conn-list">Loading…</div>
+    <p>Accounts and services __BRAND__ works with. Calendar and email are only touched after a booking change is confirmed with the provider.</p><div class="conn-list">Loading…</div>
     <div class="row"><button class="btn" data-a="close">Done</button></div></div>`;
   document.body.appendChild(back);
   const close = () => { back.remove(); if (location.hash.startsWith('#connectors')) history.replaceState(null, '', location.pathname); };
@@ -1135,10 +1135,10 @@ async function openConnectors(flash) {
       }
       if (!r.google_configured && i === 0) el.insertAdjacentHTML('beforeend', `<div class="conn-setup"><b>One-time setup:</b> in Google Cloud Console create an
         <i>OAuth client ID</i> of type <b>Desktop app</b>, enable the <b>Google Calendar API</b> and <b>Gmail API</b>, and add your Google account as a test user.
-        Then put <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in <code>.env</code> and restart Errand.<br>Redirect URI used: <code>${esc(r.redirect_uri)}</code></div>`);
+        Then put <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in <code>.env</code> and restart __BRAND__.<br>Redirect URI used: <code>${esc(r.redirect_uri)}</code></div>`);
       $('[data-a=connect]', el)?.addEventListener('click', () => { location.href = '/api/connectors/google/connect'; });
       $('[data-a=disconnect]', el)?.addEventListener('click', async () => {
-        if (!confirm('Disconnect Google? Errand will stop checking your calendar and sending confirmations. Existing calendar events stay.')) return;
+        if (!confirm('Disconnect Google? __BRAND__ will stop checking your calendar and sending confirmations. Existing calendar events stay.')) return;
         await api('/api/connectors/google/disconnect', { method: 'POST' }); toast('Google disconnected'); draw();
       });
       list.appendChild(el);

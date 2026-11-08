@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import html
 import json
 import os
 import re
@@ -30,6 +31,7 @@ from .models import Catalog, voice_model
 from .clock import SystemClock
 from .mock_env import MockWorld, ScenarioConfig
 from .store import Store
+from .brand import NAME, SLUG
 
 STATIC = os.path.join(os.path.dirname(__file__), "static", "index.html")
 USER_ID = "u1"
@@ -289,7 +291,7 @@ def make_handler(app: App):
 
         def index(self) -> None:
             with open(STATIC, "rb") as f:
-                body = f.read()
+                body = f.read().replace(b"__BRAND__", html.escape(NAME).encode())
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -376,14 +378,14 @@ def make_handler(app: App):
         def connectors(self) -> None:
             phone = {"id": "phone", "name": "Phone line (Sarvam)", "connected": not sarvam_missing(),
                      "account": os.environ.get("SARVAM_AGENT_NUMBER"),
-                     "description": "Inbound calls to your Errand number and 'Call my phone'."}
+                     "description": f"Inbound calls to your {NAME} number and 'Call my phone'."}
             voice = {"id": "voice", "name": "Voice in the browser (LiveKit)",
                      "connected": all(os.environ.get(k) for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")),
                      "account": "Sarvam speech" if os.environ.get("SARVAM_API_KEY") else "LiveKit Inference",
-                     "description": "Talk to Errand from this page (mic button)."}
+                     "description": f"Talk to {NAME} from this page (mic button)."}
             gateway = {"id": "models", "name": "Model gateway (LiteLLM)", "connected": app.kind == "litellm",
                        "account": os.environ.get("LITELLM_API_BASE") and "LiteLLM proxy" or app.kind,
-                       "description": "The language models Errand thinks with (model picker)."}
+                       "description": f"The language models {NAME} thinks with (model picker)."}
             self._json({"connectors": app.hub.status() + [phone, voice, gateway],
                         "google_configured": ConnectorHub.google_configured(),
                         "redirect_uri": self._google_redirect_uri()})
@@ -452,14 +454,14 @@ def make_handler(app: App):
                                    "message": "Phone calls aren't set up yet (run python -m errand_agent.telephony setup)."}, 400)
             with app.lock:
                 app.store.create_session(sid, USER_ID, now(), model=app.default_model())
-            room = f"errand-{sid}-out-{uuid.uuid4().hex[:6]}"
+            room = f"{SLUG}-{sid}-out-{uuid.uuid4().hex[:6]}"
 
             async def dispatch() -> Any:
                 lk = api.LiveKitAPI(os.environ["LIVEKIT_URL"].replace("wss://", "https://"),
                                     os.environ["LIVEKIT_API_KEY"], os.environ["LIVEKIT_API_SECRET"])
                 try:
                     return await lk.agent_dispatch.create_dispatch(api.CreateAgentDispatchRequest(
-                        agent_name="errand-voice", room=room,
+                        agent_name=f"{SLUG}-voice", room=room,
                         metadata=json.dumps({"session_id": sid, "mode": "outbound_phone", "phone": phone})))
                 finally:
                     await lk.aclose()
@@ -511,7 +513,7 @@ def make_handler(app: App):
                 else:  # a new inbound call: only the user's registered number may use the line
                     mine = app.reader.profile(USER_ID).get("phone")
                     if not mine or caller != mine:
-                        return self._json({"say": "Sorry, this line only serves registered Errand users. Goodbye.",
+                        return self._json({"say": f"Sorry, this line only serves registered {NAME} users. Goodbye.",
                                            "end_call": True})
                     sid = new_session_id()
                     app.store.create_session(sid, USER_ID, now(), title=f"Phone call · {datetime.now():%d %b %H:%M}",
@@ -575,12 +577,12 @@ def make_handler(app: App):
                 return self._json({"error": "LiveKit is not configured (secrets/livekit.env)"}, 400)
             with app.lock:
                 app.store.create_session(sid, USER_ID, now(), model=app.default_model())
-            room = f"errand-{sid}-{uuid.uuid4().hex[:6]}"
+            room = f"{SLUG}-{sid}-{uuid.uuid4().hex[:6]}"
             token = (api.AccessToken(os.environ["LIVEKIT_API_KEY"], os.environ["LIVEKIT_API_SECRET"])
                      .with_identity(f"user-{USER_ID}-{uuid.uuid4().hex[:4]}").with_name(USER_NAME)
                      .with_grants(api.VideoGrants(room_join=True, room=room))
                      .with_room_config(api.RoomConfiguration(agents=[api.RoomAgentDispatch(
-                         agent_name="errand-voice", metadata=json.dumps({"session_id": sid}))]))
+                         agent_name=f"{SLUG}-voice", metadata=json.dumps({"session_id": sid}))]))
                      .to_jwt())
             self._json({"url": os.environ["LIVEKIT_URL"], "token": token, "room": room})
 
@@ -788,7 +790,7 @@ def main() -> None:
         start_voice_worker(a.port)
     threading.Thread(target=app.poll_events, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(app))
-    print(f"Errand ({app.kind}) on http://127.0.0.1:{a.port}", flush=True)
+    print(f"{NAME} ({app.kind}) on http://127.0.0.1:{a.port}", flush=True)
     srv.serve_forever()
 
 

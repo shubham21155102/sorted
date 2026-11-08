@@ -1,6 +1,6 @@
-"""Errand's voice persona: one character for browser calls and phone calls.
+"""The voice persona: one character for browser calls and phone calls.
 
-The persona takes the name of the Sarvam voice you pick (e.g. "Kavya from Errand"), so the voice and
+The persona takes the name of the Sarvam voice you pick (e.g. "Kavya from Sorted"), so the voice and
 the name always match. You choose the voice, speaking speed and style in the app (user menu → Voice);
 they are saved on your profile and used for:
   * the spoken-reply instructions the agent gets on voice/phone turns (persona_note),
@@ -10,6 +10,7 @@ they are saved on your profile and used for:
 from __future__ import annotations
 
 from typing import Any
+from .brand import NAME
 
 # Sarvam bulbul:v3 voices (docs.sarvam.ai → Text to speech). Names are lowercase on the API.
 VOICES = ["kavya", "priya", "ritu", "neha", "pooja", "simran", "ishita", "shreya", "roopa", "tanya", "shruti",
@@ -62,7 +63,7 @@ def validate(body: dict[str, Any]) -> dict[str, Any]:
 def persona_note(p: dict[str, Any], user_name: str | None) -> str:
     """Who the agent is on a call, added to the spoken-reply instructions."""
     first = (user_name or "").split(" ")[0]
-    return (f"On calls you are {p['name']}, Errand's voice assistant. {STYLES[p['style']][1]} "
+    return (f"On calls you are {p['name']}, {NAME}'s voice assistant. {STYLES[p['style']][1]} "
             + (f"Call the user {first} now and then (not every turn). " if first else "")
             + "Sound natural and human in tone, but you are an AI assistant: if asked, say so plainly and never "
               "claim to be a person. When something goes wrong, say it simply and say what happens next.")
@@ -72,11 +73,11 @@ def greeting(p: dict[str, Any], user_name: str | None, *, outbound: bool = False
     first = (user_name or "").split(" ")[0]
     hi = f"Hi {first}, " if first else "Hi, "
     if outbound:
-        return f"{hi}it's {p['name']} from Errand."
-    return f"{hi}{p['name']} here from Errand. What can I sort out for you?"
+        return f"{hi}it's {p['name']} from {NAME}."
+    return f"{hi}{p['name']} here from {NAME}. What needs doing at home?"
 
 
 def preview_line(p: dict[str, Any], user_name: str | None) -> str:
     first = (user_name or "").split(" ")[0]
-    return (f"Hi{(' ' + first) if first else ''}, I'm {p['name']} from Errand. Tell me what needs fixing at home, "
+    return (f"Hi{(' ' + first) if first else ''}, I'm {p['name']} from {NAME}. Tell me what needs fixing at home, "
             "and I'll find someone good, at a time that suits you.")

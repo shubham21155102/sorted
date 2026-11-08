@@ -4,6 +4,7 @@ import json
 import pytest
 
 from errand_agent.voice_text import speakable
+from errand_agent.brand import SLUG
 
 
 def test_speakable_approval_block():
@@ -42,11 +43,11 @@ def test_voice_token_dispatches_agent_with_session(monkeypatch, tmp_path):
     h._json = lambda obj, code=200: out.update(obj=obj, code=code)
     h.rfile, h.headers = io.BytesIO(b'{"session_id": "c-abc123"}'), {"Content-Length": "26"}
     h.voice_token()
-    assert out["code"] == 200 and out["obj"]["room"].startswith("errand-c-abc123-")
+    assert out["code"] == 200 and out["obj"]["room"].startswith(f"{SLUG}-c-abc123-")
     claims = jwt.decode(out["obj"]["token"], options={"verify_signature": False})
     assert claims["video"]["room"] == out["obj"]["room"] and claims["video"]["roomJoin"]
     dispatch = claims["roomConfig"]["agents"][0]
-    assert dispatch["agentName"] == "errand-voice" and json.loads(dispatch["metadata"]) == {"session_id": "c-abc123"}
+    assert dispatch["agentName"] == f"{SLUG}-voice" and json.loads(dispatch["metadata"]) == {"session_id": "c-abc123"}
     assert app.reader.session("c-abc123") is not None  # chat exists so the transcript has a home
 
 

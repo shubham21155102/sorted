@@ -120,6 +120,9 @@ def to_openai_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
                                               "parameters": t["input_schema"]}} for t in tools]
 
 
+SARVAM_LLM_BASE = "https://api.sarvam.ai/v1"
+
+
 class LiteLLM:
     """Any model LiteLLM supports (ERRAND_MODEL=provider/model), or a LiteLLM proxy model alias
     with LITELLM_API_BASE / LITELLM_API_KEY."""
@@ -129,6 +132,7 @@ class LiteLLM:
         import litellm  # imported lazily so offline evals don't need it
 
         self.litellm = litellm
+        litellm.suppress_debug_info = True  # no "Provider List" banner when a model has no known price (e.g. Sarvam)
         self.completion = completion_fn or litellm.completion
         self.model = model or os.environ.get("ERRAND_MODEL")
         self.display_model = self.model
@@ -138,7 +142,13 @@ class LiteLLM:
         self.timeout_s = timeout_s
         self.api_base = os.environ.get("LITELLM_API_BASE") or None
         self.api_key = os.environ.get("LITELLM_API_KEY") or None
-        if self.api_base and not self.model.startswith(("openai/", "litellm_proxy/")):
+        if self.model.startswith("sarvam/"):
+            # Sarvam's LLMs (sarvam-105b, sarvam-105b-conversations) are called directly, not via the proxy:
+            # api.sarvam.ai/v1 is OpenAI-compatible, including tool calling.
+            self.api_base = SARVAM_LLM_BASE
+            self.api_key = os.environ.get("SARVAM_API_KEY")
+            self.model = "openai/" + self.model.split("/", 1)[1]
+        elif self.api_base and not self.model.startswith(("openai/", "litellm_proxy/")):
             # With a proxy, ERRAND_MODEL is the proxy's alias (e.g. "azure/gpt-5.5"). Send it to the proxy's
             # OpenAI-compatible endpoint instead of letting LiteLLM call that provider directly.
             self.model = f"openai/{self.model}"

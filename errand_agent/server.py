@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlparse
 from .agent import ErrandAgent
 from .app import ARCHIVE_SESSION, default_model_kind, make_agent, make_llm, seed_store
 from .connectors import ConnectorHub
-from .models import Catalog
+from .models import Catalog, voice_model
 from .clock import SystemClock
 from .mock_env import MockWorld, ScenarioConfig
 from .store import Store
@@ -79,9 +79,13 @@ class App:
         row = self.reader.session(sid)
         return (row or {}).get("model") or self.default_model()
 
-    def agent(self, sid: str) -> ErrandAgent:
+    def agent(self, sid: str, channel: str = "chat") -> ErrandAgent:
+        """The chat's agent, on the chat's model. Spoken turns (voice / phone) use the voice model
+        (Sarvam's LLM by default) for that turn; the next typed turn switches back."""
         with self.lock:
             model = self.session_model(sid)
+            if channel in ("voice", "phone") and self.kind == "litellm":
+                model = voice_model() or model
             if sid not in self.agents:
                 self.agents[sid] = make_agent(self.store, self.world, self.llm_for(model), model, sid, USER_ID,
                                               self.trace_path, connectors=self.hub)
@@ -434,7 +438,7 @@ def make_handler(app: App):
                                           kind="call")
                 if not text:
                     return self._json({"say": "Sorry, I didn't catch that. Could you say it again?", "session_id": sid})
-                reply = app.agent(sid).handle_user_message(text, channel="phone")
+                reply = app.agent(sid, "phone").handle_user_message(text, channel="phone")
             self._json({"say": speakable(reply), "session_id": sid, "end_call": False})
 
         def sarvam_webhook(self) -> None:
@@ -532,7 +536,7 @@ def make_handler(app: App):
             if not text:
                 return self._json({"error": "empty message"}, 400)
             with app.lock:
-                agent = app.agent(sid)
+                agent = app.agent(sid, channel)
                 agent.last_model_error = None
                 reply = agent.handle_user_message(text, channel=channel)
                 from .agent import model_error_kind

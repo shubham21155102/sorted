@@ -46,6 +46,11 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 `errand_agent/voice.py` is a LiveKit agent worker. It handles three kinds of call: **browser calls**, **inbound phone calls** (you ring Errand) and **outbound phone calls** (Errand rings you).
 
 - **Speech:** when `secrets/sarvam.env` has a `SARVAM_API_KEY`, calls use **Sarvam**: `saaras:v4` speech-to-text and `bulbul:v3` text-to-speech, voice *kavya*. Sarvam handles Indian English, Hindi and Hinglish. Without a Sarvam key, calls use LiveKit Inference (`deepgram/nova-3` and `cartesia/sonic-3`).
+- **Thinking (LLM):** spoken turns, both in the browser and on the phone, use **Sarvam's own LLM** by default: `sarvam/sarvam-105b-conversations`. It's called directly at `api.sarvam.ai` with `SARVAM_API_KEY`, not through the LiteLLM proxy. It handles tool calling and replies in under a second, which is what a live call needs. Typed turns in the same chat keep the chat's model, and each reply is tagged with the model that wrote it.
+  - `ERRAND_VOICE_MODEL=sarvam/sarvam-105b` uses the bigger reasoning model instead (slower).
+  - Any other model id from the picker also works.
+  - `ERRAND_VOICE_MODEL=session` makes calls use the chat's model.
+  - Both Sarvam models also appear in the model picker under **Sarvam**, so typed chats can use them too.
 - **Voice activity:** Silero, via LiveKit Inference.
 - **Credentials:** LiveKit credentials are in `secrets/livekit.env`. The whole `secrets/` folder is gitignored.
 - **Hindi approvals:** the code approval check understands Hindi and Hinglish confirmations ("haan", "theek hai, book kar do") and refusals ("nahi", "mat karo"). A reply like "haan lekin 11 baje" is treated as a change, not an approval.

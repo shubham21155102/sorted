@@ -151,7 +151,7 @@ def sarvam_app(app, monkeypatch):
     from errand_agent.scripted_model import ScriptedModel
     real = app.agent
 
-    def agent(sid):  # every chat on the offline model
+    def agent(sid, channel="chat"):  # every chat on the offline model
         a = real(sid)
         if a.model_name != "scripted":
             a.set_model(ScriptedModel(), "scripted")

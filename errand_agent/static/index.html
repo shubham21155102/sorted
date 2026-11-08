@@ -568,12 +568,12 @@ document.addEventListener('keydown', e => {
 /* ================================================================ model picker */
 const LOGOS = { Anthropic: 'anthropic', OpenAI: 'openai', Google: 'google', Amazon: 'amazon', Meta: 'meta',
   Mistral: 'mistral', Qwen: 'qwen', DeepSeek: 'deepseek', Moonshot: 'moonshot', NVIDIA: 'nvidia', xAI: 'xai',
-  Zhipu: 'zhipu', MiniMax: 'minimax' };
-const MONO_LOGOS = new Set(['anthropic', 'openai', 'moonshot', 'xai']);
+  Zhipu: 'zhipu', MiniMax: 'minimax', Sarvam: 'sarvam.png' };
+const MONO_LOGOS = new Set(['anthropic', 'openai', 'moonshot', 'xai', 'sarvam.png']);
 function logoFor(fam) {
   const slug = LOGOS[fam];
   if (!slug) return `<span class="logo letter" aria-hidden="true">${esc((fam || '?')[0])}</span>`;
-  return `<img class="logo${MONO_LOGOS.has(slug) ? ' mono' : ''}" src="/static/logos/${slug}.svg" alt="" aria-hidden="true" draggable="false">`;
+  return `<img class="logo${MONO_LOGOS.has(slug) ? ' mono' : ''}" src="/static/logos/${slug.includes('.') ? slug : slug + '.svg'}" alt="" aria-hidden="true" draggable="false">`;
 }
 const modelInfo = id => S.models.find(m => m.id === id) || { id, label: id, family: 'Other', provider: '' };
 const modelLabel = id => id === 'scripted' ? 'Offline (scripted)' : modelInfo(id).label;

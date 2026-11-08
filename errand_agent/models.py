@@ -23,7 +23,20 @@ FAMILIES = [("claude", "Anthropic"), ("anthropic", "Anthropic"), ("gpt", "OpenAI
             ("meta", "Meta"), ("mistral", "Mistral"), ("magistral", "Mistral"), ("devstral", "Mistral"),
             ("ministral", "Mistral"), ("nova", "Amazon"), ("qwen", "Qwen"), ("deepseek", "DeepSeek"),
             ("grok", "xAI"), ("xai", "xAI"), ("kimi", "Moonshot"), ("nemotron", "NVIDIA"), ("glm", "Zhipu"),
-            ("minimax", "MiniMax"), ("palmyra", "Writer")]
+            ("minimax", "MiniMax"), ("palmyra", "Writer"), ("sarvam", "Sarvam")]
+
+# Sarvam's own LLMs, called directly with SARVAM_API_KEY (see llm.LiteLLM). Both support tool calling;
+# the -conversations variant answers in well under a second, so it is the default for voice and phone.
+SARVAM_MODELS = ["sarvam/sarvam-105b-conversations", "sarvam/sarvam-105b"]
+
+
+def voice_model() -> str | None:
+    """Model for voice/phone turns: ERRAND_VOICE_MODEL ('session' = keep the chat's model), else Sarvam's
+    conversational model when a Sarvam key is set."""
+    v = (os.environ.get("ERRAND_VOICE_MODEL") or "").strip()
+    if v:
+        return None if v == "session" else v
+    return SARVAM_MODELS[0] if os.environ.get("SARVAM_API_KEY") else None
 
 
 def family(model_id: str) -> str:
@@ -93,6 +106,9 @@ class Catalog:
                     self.source = "proxy:/v1/models"
                 except Exception:
                     self.source = "unreachable"
+        if os.environ.get("SARVAM_API_KEY"):
+            for mid in SARVAM_MODELS:
+                found.setdefault(mid, _entry(mid, provider="sarvam"))
         allow = [m.strip() for m in (os.environ.get("ERRAND_MODELS") or "").split(",") if m.strip()]
         if allow:
             out = [found.get(m) or _entry(m) for m in allow]

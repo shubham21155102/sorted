@@ -188,6 +188,7 @@ def test_model_catalog_from_proxy(monkeypatch):
     monkeypatch.setenv("LITELLM_API_BASE", "http://proxy")
     monkeypatch.setenv("ERRAND_MODEL", "gpt-4.1")
     monkeypatch.delenv("ERRAND_MODELS", raising=False)
+    monkeypatch.delenv("SARVAM_API_KEY", raising=False)
     monkeypatch.setattr(models, "_get", lambda url, key, timeout=10: data)
     cat = models.Catalog()
     ids = [m["id"] for m in cat.models()]
@@ -241,3 +242,36 @@ def test_switching_model_mid_chat_keeps_approval():
 ])
 def test_confirmation_classifier_hindi(text, expected):
     assert classify_confirmation(text) == expected
+
+
+def test_sarvam_models_route_directly_and_serve_voice_turns(monkeypatch):
+    from errand_agent import models
+    from errand_agent.llm import LiteLLM, SARVAM_LLM_BASE
+    monkeypatch.setenv("SARVAM_API_KEY", "sk-sarvam")
+    monkeypatch.setenv("LITELLM_API_BASE", "http://proxy")
+    monkeypatch.setenv("LITELLM_API_KEY", "sk-proxy")
+    monkeypatch.delenv("ERRAND_MODELS", raising=False)
+    monkeypatch.delenv("ERRAND_VOICE_MODEL", raising=False)
+    monkeypatch.setattr(models, "_get", lambda url, key, timeout=10: {"data": []})
+    cat = models.Catalog()
+    sarvam = [m for m in cat.models() if m["family"] == "Sarvam"]
+    assert [m["id"] for m in sarvam] == ["sarvam/sarvam-105b", "sarvam/sarvam-105b-conversations"]
+    seen = {}
+
+    class R:  # minimal OpenAI-style response
+        choices = [type("C", (), {"message": type("M", (), {"content": "hi", "tool_calls": None})(),
+                                  "finish_reason": "stop"})()]
+        usage = None
+
+    def fake_completion(**kw):
+        seen.update(kw)
+        return R()
+    from errand_agent.llm import ModelRequest
+    llm = LiteLLM(model="sarvam/sarvam-105b-conversations", completion_fn=fake_completion)
+    out = llm.complete(ModelRequest(system="s", messages=[{"role": "user", "content": "hi"}], tools=[]))
+    # straight to Sarvam with the Sarvam key, never the LiteLLM proxy
+    assert seen["api_base"] == SARVAM_LLM_BASE and seen["api_key"] == "sk-sarvam"
+    assert seen["model"] == "openai/sarvam-105b-conversations" and out.model == "sarvam/sarvam-105b-conversations"
+    assert models.voice_model() == "sarvam/sarvam-105b-conversations"
+    monkeypatch.setenv("ERRAND_VOICE_MODEL", "session")
+    assert models.voice_model() is None

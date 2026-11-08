@@ -620,6 +620,21 @@ class ErrandAgent:
             r = {**r, "bookings": [{**b, "when": "upcoming" if b["slot"] > now else "past"} for b in r["bookings"]]}
         return r
 
+    def _tool_get_calendar(self, date_start: str, date_end: str | None = None) -> dict[str, Any]:
+        if not self.connectors:
+            return {"error": "calendar_not_connected", "message": "Google Calendar isn't connected. "
+                    "The user can connect it from Connectors in the user menu."}
+        try:
+            evs = self.connectors.events(date_start, date_end or date_start)
+        except Exception as e:  # Google outage / bad dates: report, don't crash the turn
+            self._emit("connector", action="calendar_read_failed", error=str(e)[:200])
+            return {"error": "calendar_unavailable", "message": "Couldn't read Google Calendar just now."}
+        if evs is None:
+            return {"error": "calendar_not_connected", "message": "Google Calendar isn't connected. "
+                    "The user can connect it from Connectors in the user menu."}
+        self._emit("connector", action="calendar_read", events=len(evs))
+        return {"date_start": date_start, "date_end": date_end or date_start, "timezone": "Asia/Kolkata", "events": evs}
+
     # --- approvals and side effects
     def _booking(self, booking_id: str) -> dict[str, Any] | None:
         r = self._provider_call("list_bookings", {"user_id": self.user_id})

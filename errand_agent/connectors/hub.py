@@ -1,7 +1,8 @@
 """ConnectorHub: the single place the agent talks to external accounts.
 
 Rules (enforced here, in code):
-  * Read-only checks (calendar busy times) may run while the agent searches.
+  * Read-only checks (calendar busy times) may run while the agent searches, and the user's
+    events can be read when they ask about their schedule (get_calendar).
   * Writes (calendar events, confirmation emails) happen ONLY after a booking change has been
     executed AND verified with the provider. The model cannot trigger them directly.
   * A connector failure never undoes or hides a verified booking: it is reported as a warning
@@ -139,6 +140,26 @@ class ConnectorHub:
                 out.append((self._local(sa), self._local(sb)))
             self._busy_cache[key] = out
         return self._busy_cache[key]
+
+    def events(self, date_start: str, date_end: str) -> list[dict[str, Any]] | None:
+        """The user's events (local time) between two dates, or None if Google isn't connected.
+        Titles and locations are the user's own text: callers treat them as data."""
+        g = self.google()
+        if not g:
+            return None
+        out = []
+        for e in g.list_events(f"{date_start}T00:00:00{TZ_OFFSET}", f"{date_end}T23:59:59{TZ_OFFSET}", TZ):
+            if e.get("status") == "cancelled":
+                continue
+            st, en = e.get("start", {}), e.get("end", {})
+            all_day = "date" in st and "dateTime" not in st
+            fmt = (lambda x: x["date"]) if all_day else \
+                (lambda x: self._local(datetime.fromisoformat(x["dateTime"].replace("Z", "+00:00"))).isoformat(timespec="minutes"))
+            out.append({"title": (e.get("summary") or "(no title)")[:120], "start": fmt(st), "end": fmt(en),
+                        "all_day": all_day, "location": (e.get("location") or "")[:120] or None,
+                        "booked_by_errand": bool(e.get("extendedProperties", {}).get("private", {})
+                                                 .get("errand_booking_id"))})
+        return out
 
     @staticmethod
     def _local(dt: datetime) -> datetime:
@@ -295,6 +316,12 @@ class FakeGoogle:
     def busy(self, time_min: str, time_max: str, tz: str) -> list[tuple[str, str]]:
         self._check("busy")
         return [(a, b) for a, b in self._busy if a[:10] <= time_max[:10] and b[:10] >= time_min[:10]]
+
+    def list_events(self, time_min: str, time_max: str, tz: str) -> list[dict[str, Any]]:
+        self._check("list")
+        evs = [e for e in self.events.values()
+               if time_min[:10] <= (e.get("start", {}).get("dateTime") or e.get("start", {}).get("date", ""))[:10] <= time_max[:10]]
+        return sorted(evs, key=lambda e: e["start"].get("dateTime") or e["start"].get("date"))
 
     def insert_event(self, event: dict[str, Any]) -> str:
         self._check("insert")

@@ -126,6 +126,13 @@ class GoogleClient:
                       {"timeMin": time_min, "timeMax": time_max, "timeZone": tz, "items": [{"id": "primary"}]})
         return [(b["start"], b["end"]) for b in r.get("calendars", {}).get("primary", {}).get("busy", [])]
 
+    def list_events(self, time_min: str, time_max: str, tz: str) -> list[dict[str, Any]]:
+        """Events on the primary calendar (read-only; recurring events expanded)."""
+        r = self._api("GET", f"{CALENDAR}/calendars/primary/events",
+                      params={"timeMin": time_min, "timeMax": time_max, "timeZone": tz, "singleEvents": "true",
+                              "orderBy": "startTime", "maxResults": 50})
+        return r.get("items", [])
+
     def insert_event(self, event: dict[str, Any]) -> str:
         return self._api("POST", f"{CALENDAR}/calendars/primary/events", event, {"sendUpdates": "none"})["id"]
 

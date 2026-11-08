@@ -170,3 +170,26 @@ def test_hub_converts_utc_busy_to_india_time():
     busy = hub.busy("2026-11-10", "2026-11-10")
     assert hub.overlaps("2026-11-10T10:00", busy) and hub.overlaps("2026-11-10T09:30", busy)
     assert not hub.overlaps("2026-11-10T11:00", busy) and not hub.overlaps("2026-11-10T09:00", busy)
+
+
+def test_get_calendar_reads_events_in_local_time():
+    fake = FakeGoogle()
+    fake.insert_event({"summary": "Standup", "start": {"dateTime": "2026-11-09T10:00:00+05:30"},
+                       "end": {"dateTime": "2026-11-09T10:30:00+05:30"}})
+    fake.insert_event({"summary": "Gym", "start": {"dateTime": "2026-11-09T14:30:00Z"},  # 20:00 IST
+                       "end": {"dateTime": "2026-11-09T15:30:00Z"}})
+    fake.insert_event({"summary": "Holiday", "start": {"date": "2026-11-09"}, "end": {"date": "2026-11-10"}})
+    fake.insert_event({"summary": "Other day", "start": {"dateTime": "2026-11-11T09:00:00+05:30"},
+                       "end": {"dateTime": "2026-11-11T10:00:00+05:30"}})
+    agent, _, _ = make(fake)
+    r = agent._tool_get_calendar("2026-11-09")
+    assert [e["title"] for e in r["events"]] == ["Holiday", "Standup", "Gym"]
+    gym = r["events"][2]
+    assert gym["start"] == "2026-11-09T20:00" and not gym["all_day"] and r["events"][0]["all_day"]
+
+
+def test_get_calendar_not_connected_and_outage():
+    agent, _, _ = make(FakeGoogle(), connected=False)
+    assert agent._tool_get_calendar("2026-11-09")["error"] == "calendar_not_connected"
+    agent2, _, _ = make(FakeGoogle(fail={"list"}))
+    assert agent2._tool_get_calendar("2026-11-09")["error"] == "calendar_unavailable"

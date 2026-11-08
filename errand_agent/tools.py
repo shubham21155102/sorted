@@ -44,6 +44,9 @@ TOOLS = [
        {"booking_id": S, "slot": S}, ["booking_id", "slot"]),
     _t("get_booking_status", "Authoritative booking status by hold_id.", {"hold_id": S}, ["hold_id"]),
     _t("list_bookings", "The current user's past and upcoming bookings.", {}, []),
+    _t("get_calendar", "Read the user's Google Calendar events between two dates (inclusive, YYYY-MM-DD, India time). "
+       "Read-only. Use when the user asks about their schedule or free time.",
+       {"date_start": S, "date_end": S}, ["date_start"]),
     _t("remember", "Save a stable preference the user explicitly stated. evidence must be the user's exact words.",
        {"key": {"type": "string", "description": "e.g. preferred_area, earliest_time, latest_time, budget_max, "
                 "technician_preference, preferred_days, avoid_provider"},

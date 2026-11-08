@@ -292,7 +292,7 @@ class ErrandAgent:
             return msg
         self._emit("proactive", decision="notify_and_find_replacement", booking=b)
         if self.connectors:
-            prov = self.world.state["providers"].get(b.get("provider_id"), {})
+            prov = (self.world.provider(b.get("provider_id") or "") or {})
             for n in self._safe(lambda: self.connectors.on_cancelled(
                     b["booking_id"], by_provider=True,
                     summary=f"{b['service'].replace('_', ' ').title()}: {b['provider_name']}",
@@ -587,16 +587,31 @@ class ErrandAgent:
         cands = []
         for p in r["providers"]:
             slots = [s for s in p["available_slots"] if self._slot_ok(s)]
+            at = p.get("attributes") or {}
             cands.append({"provider_id": p["provider_id"], "name": p["name"], "price": p["price"],
-                          "rating": p["rating"], "verified": p["attributes"].get("verified"),
-                          "warranty_days": p["attributes"].get("warranty_days"),
+                          "rating": p["rating"], "reviews": p.get("rating_count"), "jobs_done": p.get("jobs_done"),
+                          "years_experience": at.get("years_experience"), "verified": at.get("verified"),
+                          "warranty_days": at.get("warranty_days"), "response_time_mins": at.get("response_time_mins"),
                           "within_budget": budget is None or p["price"] <= budget,
                           "excluded_by_preference": avoid.startswith("not ") and p["provider_id"] in avoid,
                           "matching_slots": slots[:6], "matching_slot_count": len(slots)})
         cands.sort(key=lambda c: (c["excluded_by_preference"], not c["within_budget"], c["matching_slot_count"] == 0,
-                                  -c["rating"], c["price"]))
+                                  -c["rating"], c["price"], -(c["jobs_done"] or 0)))
         self.state.last_search = cands
         self._transition("choosing", f"search returned {len(cands)} providers")
+        # What the model sees is compact (the context budget is tight): flags only when they matter,
+        # no empty fields, and at most 4 matching slots (plus the count).
+        def compact(c: dict[str, Any]) -> dict[str, Any]:
+            out = {k: v for k, v in c.items() if v is not None and k not in ("within_budget", "excluded_by_preference")}
+            out["matching_slots"] = c["matching_slots"][:4]
+            if not c["within_budget"]:
+                out["over_budget"] = True
+            if c["excluded_by_preference"]:
+                out["excluded_by_preference"] = True
+            if not c.get("verified"):
+                out.pop("verified", None)
+            return out
+        cands = [compact(c) for c in cands]
         return {"service": r["service"], "area": r["area"], "date_range": r["date_range"],
                 "filters_applied": {"time_window": self._window(), "budget_max": budget,
                                     **({"your_calendar": calendar} if calendar else {})},
@@ -611,7 +626,7 @@ class ErrandAgent:
     def _tool_hold_slot(self, provider_id: str, slot: str) -> dict[str, Any]:
         r = self._provider_call("hold_slot", {"provider_id": provider_id, "slot": slot})
         if isinstance(r, dict) and "hold_id" in r:
-            prov = self.world.state["providers"].get(provider_id, {})
+            prov = (self.world.provider(provider_id) or {})
             self.state.holds[r["hold_id"]] = {**r, "provider_name": prov.get("name"), "service": prov.get("service")}
             if r["quoted_price"] != r.get("search_price"):
                 r = {**r, "price_changed_from_search": True}
@@ -771,7 +786,7 @@ class ErrandAgent:
             return
         try:
             if p["action"] == "book":
-                prov = self.world.state["providers"].get(out.get("provider_id"), {})
+                prov = (self.world.provider(out.get("provider_id") or "") or {})
                 notes = self.connectors.on_booked({
                     "booking_id": out.get("booking_id"), "slot": out.get("slot"), "price": out.get("price"),
                     "provider_id": out.get("provider_id"), "provider_name": p["display"].get("provider_name"),
@@ -779,7 +794,7 @@ class ErrandAgent:
             else:
                 # The booking as it was before the change (provider, service, old slot, price, area) for the email.
                 b = self._booking(out.get("booking_id") or "") or {}
-                prov = self.world.state["providers"].get(b.get("provider_id"), {})
+                prov = (self.world.provider(b.get("provider_id") or "") or {})
                 details = {"service": p["display"].get("service") or b.get("service"),
                            "provider_name": p["display"].get("provider_name") or b.get("provider_name"),
                            "slot": p["display"].get("slot") or b.get("slot"),

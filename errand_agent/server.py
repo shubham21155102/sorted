@@ -44,10 +44,11 @@ class App:
         self.kind = model or default_model_kind()
         os.makedirs(data, exist_ok=True)
         self.db_path = os.path.join(data, "agent.sqlite")
-        self.world_path = os.path.join(data, "world.json")
+        self.world_path = os.path.join(data, "world.sqlite")
         self.trace_path = os.path.join(data, "trace.jsonl")
         if fresh:
-            for p in (self.db_path, self.db_path + "-wal", self.db_path + "-shm", self.world_path, self.trace_path):
+            for p in (self.db_path, self.db_path + "-wal", self.db_path + "-shm", self.world_path, self.world_path + "-wal",
+                      self.world_path + "-shm", os.path.join(data, "world.json"), self.trace_path):
                 if os.path.exists(p):
                     os.remove(p)
         self.lock = threading.RLock()  # serialises everything that mutates agent/world state
@@ -681,7 +682,7 @@ def make_handler(app: App):
         def _booking_for_connectors(self, bid: str) -> dict[str, Any] | None:
             b = next((x for x in app.world.list_bookings(USER_ID)["bookings"] if x["booking_id"] == bid), None)
             if b:
-                b = {**b, "area": app.world.state["providers"].get(b.get("provider_id"), {}).get("area")}
+                b = {**b, "area": (app.world.provider(b.get("provider_id") or "") or {}).get("area")}
             return b
 
         def _booking_action(self, bid: str, fn: Any) -> None:
@@ -710,12 +711,10 @@ def make_handler(app: App):
         def dev_force(self) -> None:
             b = self._body()
             with app.lock:
-                st = app.world.state
                 if b.get("book_outcome"):
-                    st["forced_book_outcomes"].append(b["book_outcome"])
+                    app.world.queue_fault("book_outcome", b["book_outcome"])
                 if b.get("price_drift"):
-                    st["forced_price_drift"].append(int(b["price_drift"]))
-                app.world._save()
+                    app.world.queue_fault("price_drift", int(b["price_drift"]))
             self._json({"ok": True})
 
         def dev_cancel(self) -> None:

@@ -106,7 +106,7 @@ class Ctx:
         self.workdir = workdir
         self.clock = FakeClock()
         self.db_path = os.path.join(workdir, "agent.sqlite")
-        self.world_path = os.path.join(workdir, "world.json")
+        self.world_path = os.path.join(workdir, "world.sqlite")
         self.trace_path = sc.keep_trace or os.path.join(workdir, "trace.jsonl")
         if sc.keep_trace and os.path.exists(sc.keep_trace):
             os.remove(sc.keep_trace)
@@ -171,7 +171,7 @@ class Ctx:
         return self.store.proposals(session_id="s1")
 
     def bookings(self, created_only: bool = True) -> list[dict[str, Any]]:
-        bs = list(self.world.state["bookings"].values())
+        bs = self.world.all_bookings()
         return [b for b in bs if b["booking_id"] not in ("BK-1001", "BK-1002", "BK-1003")] if created_only else bs
 
     def last_reply(self) -> str:

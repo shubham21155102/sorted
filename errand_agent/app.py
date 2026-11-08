@@ -56,7 +56,7 @@ def default_model_kind() -> str:
 def build(data_dir: str = "run", model: str | None = None, session_id: str = "s1", user_id: str = "u1",
           fresh: bool = False, config: ScenarioConfig | None = None, context_budget: int = 12000) -> ErrandAgent:
     os.makedirs(data_dir, exist_ok=True)
-    db, world_path, trace = (os.path.join(data_dir, f) for f in ("agent.sqlite", "world.json", "trace.jsonl"))
+    db, world_path, trace = (os.path.join(data_dir, f) for f in ("agent.sqlite", "world.sqlite", "trace.jsonl"))
     if fresh:
         for p in (db, world_path, trace):
             if os.path.exists(p):

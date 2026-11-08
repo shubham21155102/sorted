@@ -468,9 +468,9 @@ add(name="tool_failure_persistent", category="failures",
 # 28
 @check("booking cancelled after one transient 503 + retry")
 def cancelled(c: Ctx):
-    b = c.world.state["bookings"]["BK-1002"]
-    return b["status"] == "cancelled" and c.world.state["cancel_attempts"]["BK-1002"] == 2, \
-        f"status={b['status']} attempts={c.world.state['cancel_attempts'].get('BK-1002')}"
+    b = c.world.booking("BK-1002")
+    return b["status"] == "cancelled" and c.world.cancel_attempts("BK-1002") == 2, \
+        f"status={b['status']} attempts={c.world.cancel_attempts('BK-1002')}"
 
 
 add(name="cancel_with_transient_503", category="failures",
@@ -484,7 +484,7 @@ add(name="cancel_with_transient_503", category="failures",
 @check("conflict -> alternative proposed and approved separately -> moved")
 def resched_ok(c: Ctx):
     ps = c.proposals()
-    b = c.world.state["bookings"]["BK-1002"]
+    b = c.world.booking("BK-1002")
     return ([p["status"] for p in ps] == ["failed", "executed"] and b["slot"] == ps[1]["material"]["new_slot"]
             and ps[0]["material"]["new_slot"] == "2026-11-14T10:00"), f"slot={b['slot']} ledger={[p['status'] for p in ps]}"
 

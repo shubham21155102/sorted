@@ -166,7 +166,7 @@ class ScriptedModel:
         sr = searches[-1]["result"]
         if "error" in sr:
             return "The provider search is failing right now, so I couldn't compare options. Nothing was booked — please try again shortly."
-        cands = [c for c in sr["providers"] if not c["excluded_by_preference"] and c["within_budget"]
+        cands = [c for c in sr["providers"] if not c.get("excluded_by_preference") and not c.get("over_budget")
                  and [s for s in c["matching_slots"] if s not in exclude_slots]]
         if not cands:
             return (preface + "I couldn't find a provider that fits your time window and budget. "

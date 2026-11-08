@@ -127,7 +127,7 @@ def test_mock_book_distribution_and_idempotency():
     outcomes = {"confirmed": 0, "slot_taken": 0, "timeout": 0}
     booked_on_timeout = 0
     for i in range(400):
-        w.state["forced_book_outcomes"] = []
+        w.clear_faults("book_outcome")
         o = w._draw_book_outcome(f"k{i}")
         key = {"success": "confirmed", "slot_taken": "slot_taken"}.get(o, "timeout")
         outcomes[key] += 1

@@ -111,7 +111,7 @@ def test_call_brief_and_markers(app):
     h, out = _handler(app)
     h.brief("c-2")
     assert "plumber" in out["obj"]["text"] and "need" in out["obj"]["text"]  # asks for the missing details
-    a.handle_user_message("Indiranagar, this week, under 1500")
+    a.handle_user_message("Indiranagar, next week, under 1500")
     h, out = _handler(app)
     h.brief("c-2")
     assert "Approval needed" in out["obj"]["text"]  # outbound call would open by reading the pending approval

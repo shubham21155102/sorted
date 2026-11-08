@@ -234,6 +234,8 @@ def test_switching_model_mid_chat_keeps_approval():
 
 
 @pytest.mark.parametrize("text,expected", [
+    ("Yes, finalize it.", "approve"), ("yes lock it in", "approve"), ("yes, do it now", "approve"),
+    ("finalize it but at 3", "none"), ("no, don't finalize", "reject"),
     ("haan", "approve"), ("Haan ji, book kar do", "approve"), ("theek hai", "approve"), ("ok kar do", "approve"),
     ("nahi", "reject"), ("mat karo", "reject"), ("haan lekin 11 baje", "none"), ("haan but cheaper", "none"),
 ])

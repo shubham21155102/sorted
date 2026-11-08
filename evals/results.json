@@ -1598,7 +1598,7 @@
   "transcript": [
    {
     "user": "Find a plumber for my kitchen tap this week, mornings only, under \u20b91,500.",
-    "agent": "This took longer than my time limit, so I stopped.\n\nNothing was booked, cancelled or changed.\n\nSaved progress: plumber in indiranagar, phase 'choosing'. Send another message to continue.",
+    "agent": "This took longer than my time limit, so I stopped.\n\nNothing was booked, cancelled or changed.\n\nSaved progress: plumber in Indiranagar, step 'choosing'. Send another message to continue.",
     "run_id": "run-fb62ed27"
    }
   ]

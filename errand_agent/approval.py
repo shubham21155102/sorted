@@ -30,6 +30,8 @@ STRONG_AFFIRM = {"yes", "yeah", "yep", "yup", "ok", "okay", "sure", "confirm", "
 FILLER = {"ahead", "book", "it", "do", "please", "that", "sounds", "good", "great", "thanks", "thank", "you",
           "cancel", "reschedule", "move", "the", "booking", "this", "one", "perfect", "fine", "lets", "let's",
           "s", "go", "and", "is", "correct", "right",
+          # common spoken confirmations (phone calls): "yes, finalize it", "yes lock it in", "yes do it now"
+          "finalize", "finalise", "finalized", "finalised", "lock", "in", "now", "please", "go", "ahead", "done",
           "ji", "hai", "kar", "karo", "kardo", "karna", "dijiye", "kijiye", "do", "de", "dena", "shukriya", "dhanyavaad"}
 NEGATION = {"no", "nope", "nah", "not", "dont", "don't", "never", "stop", "wait", "hold", "change",
             "instead", "but", "actually", "different", "other", "later", "cheaper", "rather",

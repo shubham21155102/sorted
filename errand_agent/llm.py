@@ -53,7 +53,11 @@ def estimate_tokens(text: str) -> int:
 class AnthropicLLM:
     def __init__(self, model: str | None = None, effort: str = "medium", timeout_s: float = 60.0,
                  client: Any = None):
-        import anthropic  # imported lazily so offline evals don't need credentials
+        try:
+            import anthropic  # optional dependency, only needed for ERRAND_LLM=live
+        except ImportError as e:
+            raise RuntimeError("ERRAND_LLM=live needs the Anthropic SDK: pip install 'anthropic>=2.6' "
+                               "(or use ERRAND_LLM=litellm)") from e
 
         self.anthropic = anthropic
         self.client = client or anthropic.Anthropic(timeout=timeout_s, max_retries=2)

@@ -42,8 +42,14 @@ def make_llm(kind: str) -> Any:
     return RecordingLLM(llm, rec) if rec else llm
 
 
+PROVIDER_KEYS = ("LITELLM_API_BASE", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "AZURE_API_KEY")
+
+
 def default_model_kind() -> str:
-    return os.environ.get("ERRAND_LLM") or ("live" if os.environ.get("ANTHROPIC_API_KEY") else "scripted")
+    """ERRAND_LLM wins; otherwise LiteLLM if any provider credential is configured, else the offline model."""
+    if os.environ.get("ERRAND_LLM"):
+        return os.environ["ERRAND_LLM"]
+    return "litellm" if any(os.environ.get(k) for k in PROVIDER_KEYS) else "scripted"
 
 
 def build(data_dir: str = "run", model: str | None = None, session_id: str = "s1", user_id: str = "u1",

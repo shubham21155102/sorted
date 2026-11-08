@@ -2,8 +2,10 @@
 (no network, no key). Verifies request shape, tool-use parsing, and the agent loop with it."""
 import json
 
-import anthropic
-import httpx2 as httpx
+import pytest
+
+anthropic = pytest.importorskip("anthropic")
+httpx = pytest.importorskip("httpx2")
 
 from errand_agent.agent import ErrandAgent
 from errand_agent.clock import FakeClock

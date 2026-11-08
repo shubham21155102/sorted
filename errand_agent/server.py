@@ -136,6 +136,8 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/$", "index"),
     ("GET", r"^/api/bootstrap$", "bootstrap"),
     ("GET", r"^/api/models$", "models"),
+    ("GET", r"^/api/voice/config$", "voice_config"),
+    ("POST", r"^/api/voice/token$", "voice_token"),
     ("GET", r"^/api/sessions$", "list_sessions"),
     ("POST", r"^/api/sessions$", "create_session"),
     ("GET", r"^/api/sessions/(?P<sid>[\w-]+)/messages$", "messages"),
@@ -211,6 +213,29 @@ def make_handler(app: App):
             self._json({"user": {"id": USER_ID, "name": USER_NAME}, "backend": app.kind,
                         "default_model": app.default_model()})
 
+        def voice_config(self) -> None:
+            ok = all(os.environ.get(k) for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"))
+            self._json({"enabled": ok, "url": os.environ.get("LIVEKIT_URL") if ok else None})
+
+        def voice_token(self) -> None:
+            """Token for the browser to join a fresh room; it dispatches the voice worker for this chat."""
+            from livekit import api
+            sid = self._body().get("session_id")
+            if not sid or not re.match(r"^[\w-]+$", sid):
+                return self._json({"error": "session_id required"}, 400)
+            if not os.environ.get("LIVEKIT_API_KEY"):
+                return self._json({"error": "LiveKit is not configured (secrets/livekit.env)"}, 400)
+            with app.lock:
+                app.store.create_session(sid, USER_ID, now(), model=app.default_model())
+            room = f"errand-{sid}-{uuid.uuid4().hex[:6]}"
+            token = (api.AccessToken(os.environ["LIVEKIT_API_KEY"], os.environ["LIVEKIT_API_SECRET"])
+                     .with_identity(f"user-{USER_ID}-{uuid.uuid4().hex[:4]}").with_name(USER_NAME)
+                     .with_grants(api.VideoGrants(room_join=True, room=room))
+                     .with_room_config(api.RoomConfiguration(agents=[api.RoomAgentDispatch(
+                         agent_name="errand-voice", metadata=json.dumps({"session_id": sid}))]))
+                     .to_jwt())
+            self._json({"url": os.environ["LIVEKIT_URL"], "token": token, "room": room})
+
         def models(self) -> None:
             ms = app.catalog.models(refresh=self.q.get("refresh") == "1") if app.kind == "litellm" \
                 else [m for m in app.catalog.models() if m["id"] == "scripted"]
@@ -232,13 +257,15 @@ def make_handler(app: App):
             self._json({"messages": msgs[since:], "count": len(msgs), "model": app.session_model(sid)})
 
         def chat(self, sid: str) -> None:
-            text = (self._body().get("text") or "").strip()
+            body = self._body()
+            text = (body.get("text") or "").strip()
+            channel = "voice" if body.get("channel") == "voice" else "chat"
             if not text:
                 return self._json({"error": "empty message"}, 400)
             with app.lock:
                 agent = app.agent(sid)
                 agent.last_model_error = None
-                reply = agent.handle_user_message(text)
+                reply = agent.handle_user_message(text, channel=channel)
                 from .agent import model_error_kind
                 if agent.last_model_error and model_error_kind(agent.last_model_error) in ("model_blocked", "model_not_found"):
                     app.catalog.mark_blocked(agent.model_name, "blocked for this key" if "blocked" in
@@ -318,14 +345,31 @@ def make_handler(app: App):
     return H
 
 
+def start_voice_worker(port: int) -> None:
+    """Run the voice worker as a child process that talks to this server."""
+    import atexit
+    import subprocess
+    import sys
+    if not os.environ.get("LIVEKIT_API_KEY"):
+        print("voice: LiveKit is not configured (secrets/livekit.env); skipping the voice worker")
+        return
+    env = {**os.environ, "ERRAND_SERVER_URL": f"http://127.0.0.1:{port}"}
+    proc = subprocess.Popen([sys.executable, "-m", "errand_agent.voice", "start"], env=env)
+    atexit.register(proc.terminate)
+    print(f"voice worker started (pid {proc.pid})")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=None, help="litellm | scripted | replay:<cassette.jsonl>")
     ap.add_argument("--data", default="run")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--fresh", action="store_true", help="wipe local state and reseed")
+    ap.add_argument("--voice", action="store_true", help="also start the LiveKit voice worker")
     a = ap.parse_args()
     app = App(a.data, a.model, a.fresh)
+    if a.voice:
+        start_voice_worker(a.port)
     threading.Thread(target=app.poll_events, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(app))
     print(f"Errand ({app.kind}) on http://127.0.0.1:{a.port}")

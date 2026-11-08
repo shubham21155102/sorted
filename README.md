@@ -12,7 +12,7 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requi
 
 # live LLM via LiteLLM; without ERRAND_MODEL both fall back to the offline scripted model
 cp .env.example .env                          # set ERRAND_MODEL, LITELLM_API_BASE, LITELLM_API_KEY
-.venv/bin/python -m errand_agent.server --fresh   # http://127.0.0.1:8765  chat app: history, approvals, trace/memory/bookings panel
+.venv/bin/python -m errand_agent.server --fresh --voice   # http://127.0.0.1:8765  chat app + voice calls
 .venv/bin/python -m errand_agent.cli --fresh      # terminal chat (/cancel BK-1002, /memories, /state)
 ```
 
@@ -37,8 +37,25 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 - **Conversation:** formatted replies. Approval requests show as a card with **Approve** and **Change something** buttons. Verified, error and warning results appear as coloured notes. A live activity line ("Searching providers…", "Holding a slot…") shows while the agent works, and each reply has a collapsible list of the steps it took. Proactive and after-restart messages are labelled.
 - **Side panel:** tabs for **Trace** (live events for this chat, filterable, click to expand), **Memory** (stated vs inferred facts, with a Forget button on each) and **Bookings**. Deep-link one with `#/c/<chat id>?panel=memory`.
 - **Model picker** (in the message box, or the model pill in the top bar): choose the model for each chat, and switch mid-conversation. The list is your LiteLLM proxy's chat models that support tool calling (`/model_group/info`), grouped by provider with prices per 1M tokens. `ERRAND_MODELS` limits it to a list you choose. Each reply shows which model wrote it, and the trace records a `model_switched` event plus per-call cost from the proxy's prices. If the proxy rejects a model (for example *Model is blocked* for your key), the reply says so, any approval you already gave is kept, and the model is greyed out in the picker.
+- **Voice calls** (mic button next to Send): talk to Errand over LiveKit. See *Voice agent* below.
 - **Demo menu** (sliders icon): make the next booking time out after succeeding, make the next hold quote ₹300 more, have a provider cancel a booking, or restart the agent process.
 - **Appearance:** light, dark or system theme. Works on phones.
+
+## Voice agent
+
+`errand_agent/voice.py` is a LiveKit agent worker. Speech-to-text (`deepgram/nova-3`), text-to-speech (`cartesia/sonic-3`) and voice-activity detection run on **LiveKit Inference**, using the LiveKit Cloud credentials in `secrets/livekit.env` (gitignored).
+
+- **One brain:** the voice worker has no logic of its own. Each finished utterance is posted to the web server's chat API for the call's chat (`channel: "voice"`). Calls get the same agent, model, approvals, idempotent booking, memory, limits and trace as typed chat.
+- **History:** every spoken turn is saved in that chat, tagged *Said on a call* / *Spoken reply*.
+- **Approvals by voice:** the approval details are read aloud ("…Monday 9 November at 9 AM for 990 rupees. Say yes to confirm"). Saying "yes" goes through the same strict approval check as typing it.
+- **Spoken replies:** on a call the model is told to answer in 1–3 short spoken sentences. `voice_text.speakable` converts markdown, ₹, dates and IDs into natural speech.
+- **Turn handling:** preemptive generation is disabled on purpose. A reply here can search and hold slots, so it must never run on a half-finished sentence. A 1-second pause marks the end of the caller's turn.
+- **Slow turns and proactive messages:** if the agent takes more than 2.5 seconds, it says "One moment." Proactive messages that arrive during a call, such as a provider cancellation, are spoken out.
+- **Connecting a call:** the browser gets a token from `POST /api/voice/token`. That joins a fresh room and dispatches the `errand-voice` agent, with the chat's session id in the dispatch metadata.
+
+Run it with `python -m errand_agent.server --voice` (one command; the worker runs as a child process), or separately with `python -m errand_agent.voice dev` next to the server (set `ERRAND_SERVER_URL` if the server isn't on port 8765).
+
+**Verified end to end** against LiveKit Cloud: a test caller published synthesized speech as its microphone. The agent transcribed it, found and held a plumber, read out the approval, booked after "Yes." (one verified booking), and the full transcript was saved in the chat.
 
 ## Layout
 
@@ -54,6 +71,9 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 | `sanitize.py` | Untrusted tool text: instruction-like sentences removed and flagged before reaching the model. |
 | `tracing.py` | JSONL trace, PII redaction, cost estimates. |
 | `llm.py` | LiteLLM adapter (any provider or a LiteLLM proxy), record/replay. |
+| `models.py` | Model catalog for the picker (proxy `/model_group/info`, prices, blocked models). |
+| `voice.py`, `voice_text.py` | LiveKit voice worker (STT → Errand server → TTS) and speech-friendly text. |
+| `server.py`, `static/index.html` | Web app: chats, model picker, voice calls, trace/memory/bookings panel. |
 | `scripted_model.py`, `nlu.py` | Offline deterministic model for evals, with switches to simulate a *misbehaving* model. |
 | `evals/` | Harness (simulated users, restarts, crashes, clock control), 35 scenarios, global invariants, table generator. |
 

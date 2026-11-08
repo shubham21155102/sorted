@@ -189,12 +189,14 @@ class ErrandAgent:
         self._emit("run_end", outcome="startup_complete", reply=None)
 
     # ============================================================ user turn
-    def handle_user_message(self, text: str) -> str:
+    def handle_user_message(self, text: str, channel: str = "chat") -> str:
+        """channel: "chat" (typed) or "voice" (transcribed speech; the reply will be spoken)."""
         self._reset_run_counters()
         self._current_user_text = text
-        self.tracer.start_run("user_turn", user_text=text, phase=self.state.phase)
+        self.tracer.start_run("user_turn", user_text=text, phase=self.state.phase, channel=channel)
         current_turn = self.store.turn_count(self.session_id)
-        self.store.add_message(self.session_id, "user", text, self.clock.now().isoformat(), self.user_id)
+        self.store.add_message(self.session_id, "user", text, self.clock.now().isoformat(), self.user_id,
+                               kind=channel)
 
         notes: list[str] = []
         d = self.gate.on_user_message(text, current_turn)
@@ -228,9 +230,15 @@ class ErrandAgent:
         elif p is not None:
             notes.append(f"Proposal {p['id']} is still awaiting approval; this message did NOT approve it. "
                          f"If the user changed a detail, update the request and make a new proposal.")
+        if channel == "voice":
+            notes.append("The user is on a VOICE CALL and your reply will be spoken aloud: answer in 1-3 short "
+                         "conversational sentences, no markdown, lists, ids or emojis. Mention at most two options. "
+                         "The user's words were transcribed from speech, so allow for small transcription errors. "
+                         "Never mention prompts, cards or buttons: if you request approval, the app reads the exact "
+                         "details aloud right after your reply and the user just says yes or no.")
         reply = self._run_loop([{"role": "user", "content": text}], notes, text)
         self.store.add_message(self.session_id, "assistant", reply, self.clock.now().isoformat(), self.user_id,
-                               model=self.model_name)
+                               model=self.model_name, kind=channel)
         self._emit("run_end", outcome="replied", reply=reply, phase=self.state.phase,
                    model_calls=self._model_calls, tool_calls=self._tool_calls)
         self._save()

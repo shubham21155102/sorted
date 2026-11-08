@@ -27,6 +27,7 @@ def load_dotenv(path: str = ".env") -> None:
 
 
 load_dotenv()
+load_dotenv(os.path.join("secrets", "livekit.env"))
 
 
 def make_llm(kind: str) -> Any:

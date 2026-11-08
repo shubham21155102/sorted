@@ -6,6 +6,7 @@
 <title>Errand</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.23.0/dist/livekit-client.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -225,6 +226,38 @@ svg { display: block; }
 .item .forget:hover { background: var(--bad-soft); }
 .empty-note { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 13.5px; }
 
+/* voice */
+.call-btn { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--ink-2); border: 1px solid var(--line-2); }
+.call-btn:hover { background: var(--hover); color: var(--ink); }
+.call-btn svg { width: 17px; height: 17px; }
+.call-btn[hidden] { display: none; }
+.callbar { max-width: 760px; margin: 0 auto; background: var(--raised); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--shadow-lg);
+  padding: 14px 14px 14px 16px; display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; animation: rise .18s ease-out; }
+.orb { width: 46px; height: 46px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ffb38a, var(--accent) 60%, #8a2c08);
+  box-shadow: 0 0 0 0 rgba(224,112,59,.45); transition: transform .25s; }
+.callbar[data-state="connecting"] .orb, .callbar[data-state="initializing"] .orb { opacity: .5; animation: pulse 1.2s ease-in-out infinite; }
+.callbar[data-state="listening"] .orb { animation: breathe 2.6s ease-in-out infinite; }
+.callbar[data-state="thinking"] .orb { animation: think 1s linear infinite; }
+.callbar[data-state="speaking"] .orb { animation: speak .5s ease-in-out infinite alternate; }
+@keyframes breathe { 50% { transform: scale(1.06); box-shadow: 0 0 0 8px rgba(224,112,59,.10); } }
+@keyframes think { 0% { filter: hue-rotate(0deg); } 100% { filter: hue-rotate(40deg); transform: rotate(360deg); } }
+@keyframes speak { from { transform: scale(1); box-shadow: 0 0 0 2px rgba(224,112,59,.25); } to { transform: scale(1.14); box-shadow: 0 0 0 12px rgba(224,112,59,.08); } }
+.call-info { min-width: 0; }
+.call-state { font-weight: 500; font-size: 14.5px; }
+.call-caption { font-size: 13.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 20px; }
+.call-caption b { color: var(--ink-2); font-weight: 500; }
+.call-actions { display: flex; gap: 8px; }
+.round { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line-2); color: var(--ink-2); }
+.round:hover { background: var(--hover); color: var(--ink); }
+.round.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.round.end { background: #d92d20; border-color: #d92d20; color: #fff; }
+.round.end:hover { background: #b42318; }
+.round svg { width: 18px; height: 18px; }
+.tag.voice { background: var(--hover); color: var(--ink-2); }
+.msg.user .via { display: flex; justify-content: flex-end; }
+.msg.user { flex-direction: column; align-items: flex-end; }
+.msg.user .tag { margin: 0 4px 4px 0; }
+
 /* model picker */
 .model-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; font-size: 13px; color: var(--ink-2); max-width: 260px; }
 .model-btn:hover { background: var(--hover); color: var(--ink); }
@@ -323,6 +356,7 @@ button.model-pill:hover { color: var(--ink); border-color: var(--line-2); }
       <div class="composer-row">
         <button type="button" class="model-btn" title="Choose model"><span></span><svg class="icon" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></button>
         <span class="spacer"></span><span class="kbd">Enter to send</span>
+        <button type="button" class="call-btn" title="Talk to Errand (voice)" hidden><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></button>
         <button class="send" type="submit" disabled title="Send"><svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
       </div>
     </form>
@@ -357,6 +391,9 @@ const ICON = {
   cal: '<svg class="icon" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
   clock: '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   tag: '<svg class="icon" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg>',
+  mic: '<svg class="icon" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
+  micOff: '<svg class="icon" viewBox="0 0 24 24"><path d="M15 9.5V6a3 3 0 00-5.8-1M9 9v2a3 3 0 004.6 2.5M5 11a7 7 0 0011.5 5.4M19 11a7 7 0 01-.6 2.8M12 18v3M3 3l18 18"/></svg>',
+  hang: '<svg class="icon" viewBox="0 0 24 24"><path d="M3 15c5-5 13-5 18 0l-2.5 2.5-3.5-2v-3a10 10 0 00-6 0v3l-3.5 2z"/></svg>',
   power: '<svg class="icon" viewBox="0 0 24 24"><path d="M12 3v9M6.3 7a8 8 0 1011.4 0"/></svg>',
 };
 
@@ -568,12 +605,14 @@ function composer(onSend, autofocus) {
   ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
   form.onsubmit = e => { e.preventDefault(); const t = ta.value.trim(); if (!t || S.busy) return; ta.value = ''; fit(); onSend(t); };
   node.setText = t => { ta.value = t; fit(); ta.focus(); };
+  const cb = $('.call-btn', node); cb.hidden = !S.voice?.enabled; cb.onclick = () => startCall();
   node.refresh = fit;
   setTimeout(syncModelUI, 0);
   if (autofocus) setTimeout(() => ta.focus({ preventScroll: true }), 30);
   return node;
 }
 function renderHome() {
+  if (S.call) endCall(true);
   S.sid = null; S.count = 0; S.chatModel = null; setTitle(); renderSessions(); syncModelUI();
   const v = $('#view'); v.innerHTML = '';
   const hero = document.createElement('div'); hero.className = 'hero';
@@ -591,6 +630,7 @@ function renderHome() {
   hero.appendChild(chips); v.appendChild(hero);
 }
 async function renderChat(sid) {
+  if (S.call && S.call.sid !== sid) endCall(true);
   S.sid = sid; S.count = 0; S.traceSince = 0; S.liveSteps = [];
   setTitle(); renderSessions();
   const v = $('#view'); v.innerHTML = `<div class="scroller" id="scroller"><div class="thread" id="thread"></div></div>`;
@@ -604,15 +644,17 @@ async function renderChat(sid) {
   S.count = count; scrollDown(false);
   if (S.panel) refreshPanel(true);
   if (S.pendingFirst) { const t = S.pendingFirst; S.pendingFirst = null; send(t); }
+  if (S.startCallAfterRoute) { S.startCallAfterRoute = false; startCall(); }
 }
 function appendMessage(m, { interactive = false, steps = null } = {}) {
   const thread = $('#thread'); if (!thread) return;
   thread.querySelectorAll('.approval:not(.done)').forEach(a => a.classList.add('done'));
   const el = document.createElement('div'); el.className = `msg ${m.role === 'user' ? 'user' : 'assistant'}`;
-  if (m.role === 'user') { el.innerHTML = `<div class="bubble">${esc(m.content)}</div>`; }
+  if (m.role === 'user') { el.innerHTML = `${m.kind === 'voice' ? `<div class="tag voice">${ICON.mic}Said on a call</div>` : ''}<div class="bubble">${esc(m.content)}</div>`; }
   else {
     const tag = m.kind === 'proactive' ? `<div class="tag proactive">${ICON.bell}Sent without a message from you</div>`
-              : m.kind === 'recovery' ? `<div class="tag recovery">${ICON.refresh}After a restart</div>` : '';
+              : m.kind === 'recovery' ? `<div class="tag recovery">${ICON.refresh}After a restart</div>`
+              : m.kind === 'voice' ? `<div class="tag voice">${ICON.mic}Spoken reply</div>` : '';
     const stepsHtml = steps && steps.length ? `<details class="steps"><summary>${ICON.chev}${steps.length} step${steps.length > 1 ? 's' : ''}</summary><ol>${
       steps.map(s => `<li class="${s.blocked ? 'blocked' : ''}">${esc(s.text)}${s.blocked ? ' — blocked: needs your approval' : ''}</li>`).join('')}</ol></details>` : '';
     el.innerHTML = `<div class="mark">${ICON.mark}</div><div class="body">${tag}${stepsHtml}${renderAssistant(m.content, { interactive })}
@@ -665,14 +707,16 @@ async function send(text) {
   }
 }
 /* Proactive / recovery messages arrive without a user message: poll for them. */
-setInterval(async () => {
+async function pollMessages() {
   if (!S.sid || S.busy) return;
   try {
     const sid = S.sid; const { messages, count } = await api(`/api/sessions/${sid}/messages?since=${S.count}`);
     if (sid !== S.sid || S.busy) return;
     if (messages.length) { messages.forEach((m, i) => appendMessage(m, { interactive: i === messages.length - 1 })); S.count = count; scrollDown(); loadSessions().then(setTitle); }
   } catch {}
-}, 2500);
+}
+setInterval(() => { if (!S.call) pollMessages(); }, 2500);
+setInterval(() => { if (S.call) pollMessages(); }, 900);
 setInterval(() => { if (!S.busy) loadSessions().then(setTitle).catch(() => {}); }, 6000);
 
 /* ======================================================================= panel */
@@ -773,6 +817,62 @@ $('#demo-btn').onclick = e => { e.stopPropagation(); openMenu(e.currentTarget, [
       toast(r.cancelled ? `Provider cancelled ${r.cancelled} — watch the chat` : 'No upcoming booking to cancel'); } },
   '-', { text: 'Restart the agent process', icon: ICON.power, run: async () => { await api('/api/dev/restart', { method: 'POST' }); toast('Restarted — state recovered from disk'); route(); } }], 'right'); };
 
+/* ======================================================================== voice */
+const STATE_LABEL = { connecting: 'Connecting…', initializing: 'Connecting…', listening: 'Listening', thinking: 'Working on it…', speaking: 'Speaking' };
+async function startCall() {
+  if (S.call || !S.voice?.enabled) return;
+  if (!window.LivekitClient) { toast('Voice library failed to load (offline?)'); return; }
+  if (!S.sid) {  // start a new chat for the call
+    const { id } = await api('/api/sessions', { method: 'POST', body: { model: currentModel() } });
+    S.startCallAfterRoute = true; location.hash = `#/c/${id}`; return;
+  }
+  const sid = S.sid;
+  const { Room, RoomEvent, Track } = window.LivekitClient;
+  const bar = document.createElement('div'); bar.className = 'callbar'; bar.dataset.state = 'connecting';
+  bar.innerHTML = `<div class="orb"></div><div class="call-info"><div class="call-state">Connecting…</div><div class="call-caption">Allow microphone access to start talking.</div></div>
+    <div class="call-actions"><button class="round" data-act="mute" title="Mute">${ICON.mic}</button><button class="round end" data-act="end" title="End call">${ICON.hang}</button></div>`;
+  const form = S.composer.querySelector('form'); form.style.display = 'none'; S.composer.prepend(bar);
+  const call = S.call = { sid, bar, room: null, audio: [], muted: false };
+  const setState = st => { bar.dataset.state = st; bar.querySelector('.call-state').textContent = STATE_LABEL[st] || st; };
+  const caption = (who, text) => { bar.querySelector('.call-caption').innerHTML = `<b>${who}:</b> ${esc(text)}`; };
+  bar.querySelector('[data-act=end]').onclick = () => endCall();
+  bar.querySelector('[data-act=mute]').onclick = async e => {
+    call.muted = !call.muted; await call.room?.localParticipant.setMicrophoneEnabled(!call.muted);
+    e.currentTarget.classList.toggle('on', call.muted); e.currentTarget.innerHTML = call.muted ? ICON.micOff : ICON.mic;
+    e.currentTarget.title = call.muted ? 'Unmute' : 'Mute';
+  };
+  try {
+    const { url, token } = await api('/api/voice/token', { method: 'POST', body: { session_id: sid } });
+    const room = call.room = new Room({ adaptiveStream: true, dynacast: true });
+    room.on(RoomEvent.TrackSubscribed, track => { if (track.kind === Track.Kind.Audio) { const el = track.attach(); el.hidden = true; document.body.appendChild(el); call.audio.push(el); } });
+    room.on(RoomEvent.ParticipantAttributesChanged, (changed) => { if (changed['lk.agent.state']) setState(changed['lk.agent.state']); });
+    room.on(RoomEvent.ParticipantConnected, p => { if (p.isAgent || String(p.identity).startsWith('agent')) setState(p.attributes?.['lk.agent.state'] || 'initializing'); });
+    room.on(RoomEvent.Disconnected, () => { if (S.call === call) endCall(true); });
+    room.registerTextStreamHandler('lk.transcription', async (reader, info) => {
+      const mine = info.identity === room.localParticipant.identity; let text = '';
+      for await (const chunk of reader) { text += chunk; caption(mine ? 'You' : 'Errand', text); }
+    });
+    await room.connect(url, token);
+    await room.localParticipant.setMicrophoneEnabled(true);
+    await room.startAudio();
+    if (S.call !== call) { room.disconnect(); return; }
+    setState('initializing'); bar.querySelector('.call-caption').textContent = 'Waiting for Errand to join…';
+    const agentNow = [...room.remoteParticipants.values()].find(p => p.attributes?.['lk.agent.state']);
+    if (agentNow) setState(agentNow.attributes['lk.agent.state']);
+  } catch (err) {
+    toast(`Couldn't start the call: ${err.message}`); endCall(true);
+  }
+}
+function endCall(silent = false) {
+  const call = S.call; if (!call) return; S.call = null;
+  try { call.room?.disconnect(); } catch {}
+  call.audio.forEach(el => el.remove()); call.bar.remove();
+  const form = S.composer?.querySelector('form'); if (form) form.style.display = '';
+  if (!silent) toast('Call ended — the transcript is saved in this chat');
+  pollMessages(); loadSessions().then(setTitle);
+}
+window.addEventListener('beforeunload', () => { try { S.call?.room?.disconnect(); } catch {} });
+
 /* ======================================================================= router */
 function route() {
   const m = location.hash.match(/^#\/c\/([\w-]+)/);
@@ -789,6 +889,7 @@ window.addEventListener('hashchange', route);
   $('#open-sidebar').style.visibility = app.classList.contains('sidebar-collapsed') || innerWidth <= 760 ? 'visible' : 'hidden';
   const b = await api('/api/bootstrap'); S.user = b.user; S.defaultModel = b.default_model;
   $('#user-name').textContent = b.user.name; $('#avatar').textContent = b.user.name[0].toUpperCase();
+  try { S.voice = await api('/api/voice/config'); } catch { S.voice = { enabled: false }; }
   await Promise.all([loadSessions(), loadModels()]); route();
 })();
 </script>

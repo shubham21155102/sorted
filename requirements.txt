@@ -1,4 +1,6 @@
 litellm>=1.70
-mcp>=1.0        # litellm imports its MCP handler on tool-calling requests
-tenacity>=8     # litellm's retry path (num_retries)
+mcp>=1.0             # litellm imports its MCP handler on tool-calling requests
+tenacity>=8          # litellm's retry path (num_retries)
+livekit-agents>=1.8  # voice agent (LiveKit Inference: STT, TTS, VAD)
+livekit-api>=1.2     # access tokens + agent dispatch
 pytest>=8

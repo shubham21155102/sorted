@@ -1,5 +1,7 @@
 # Design note — Errand Agent (shipped as *Sorted*)
 
+**Provider world.** The 8 tools run against a seeded SQLite marketplace (`mock_env.py`): 367 providers across 6 services × 12 Bangalore areas. Each has price, rating and review count, jobs done, experience, working hours and days off, plus reviews (one per area carries a prompt injection). The contract odds and failure modes are unchanged. An admin dashboard edits the same tables, so changes reach the next tool call. Evals use an in-memory copy, so they stay reproducible.
+
 **Shape.** A single agent loop (`agent.py`). The LLM (via LiteLLM) reads the conversation and picks tools. Code owns the consequential parts: phase, approvals, idempotency, side-effect verification, memory gating, limits, and the status lines users see. More agents wouldn't make the hard problems (enforcement and correctness) any easier.
 
 **State model.** `WorkflowState` is a small state machine: `idle → gathering → searching → choosing → awaiting_approval → executing → completed | failed`. The model never sets the phase. Phases change only on events the code observes, against an allow-list, and every transition is traced. `ErrandRequest` holds the slots and where each value came from (user / memory / event). Updates are merges, so "actually make it Thursday" changes only the date. Code computes `missing`, and the model asks only for those fields. State is saved to SQLite after every step.
@@ -29,7 +31,7 @@ tool_call       book(H-0001, idem-book-734c…) → {"error":"timeout"}
 recovery        timeout → query get_booking_status before deciding ← no blind retry
 tool_call       get_booking_status(idem-book-734c…) → applied BK-1004
 execution       executed  verified_by=get_booking_status note="timeout after success"
-run_end         "✅ Verified: booking BK-1004 confirmed — QuickPipe, Mon 09 Nov 09:00, ₹990"
+run_end         "✅ Verified: booking BK-1004 confirmed — QuickPipe, Mon 09 Nov, 10:00, ₹990"
 ```
 
 **Trade-offs.** The approval parser is strict: "yeah go for it at that time" re-prompts. A false negative costs one turn; a false positive could book something unwanted. Token estimates are chars/4, which keeps evals deterministic; live runs also log the API's real counts.

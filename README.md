@@ -46,6 +46,48 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 - **Icons:** status notes, call markers and buttons use SVG icons. Stored messages keep short markers (✅ ⚠️ 📅 …) that the page draws as icons, and voice strips them.
 - **Appearance:** light, dark or system theme. Works on phones. The logo, favicon and Apple touch icon (the little house mascot in `static/brand/`) were generated with Meta's Muse Image (`muse-image-1.0`). The original is kept as `source-muse-image.webp`.
 
+## Provider marketplace (database) and admin dashboard
+
+The 8 tools from the assignment run against a **SQLite marketplace**, `run/world.sqlite`, implemented in `errand_agent/mock_env.py`. It isn't a JSON blob:
+
+| Table | What's in it |
+|---|---|
+| `providers` | 367 providers: 6 services × 12 Bangalore areas, 3–8 per area. Each has visit price, rating **and how many reviews it rests on**, **jobs done**, years of experience, lead technician, phone, languages, warranty, emergency visits, typical response time, **working hours, weekly days off** and an active flag. |
+| `reviews` | Dated reviews with stars from named customers, written for each service. As the contract requires, one provider per area has a review containing a prompt-injection attempt. |
+| `slot_overrides` | Slots the admin blocked (leave, another job) or opened as an exception. |
+| `holds`, `bookings`, `idempotency`, `cancel_attempts`, `taken_slots`, `events`, `op_log` | The transactional side the tools write: 10-minute holds, bookings, the source of truth for `get_booking_status`, the cancel-503 counter and provider-cancel events. |
+| `fault_queue` | Forced outcomes for demos and evals (next booking outcome, price change on hold, tool failure). |
+
+A slot is offered when:
+- it's inside the provider's working hours and not on a day off;
+- it's not taken by other (simulated) customers, using the seeded pattern;
+- it's not blocked;
+- it's not held or booked.
+
+The contract behaviour is unchanged:
+- **Bookings:** 70% success / 15% slot taken / 15% timeout (half of those booked), and `hold_expired` once a hold has run out.
+- **Prices:** the price can change between search and hold.
+- **Cancel:** the first attempt fails with a 503.
+- **Reschedule:** returns `slot_conflict` on configured slots.
+
+The agent shows customers what helps them choose: rating with review count, jobs done, experience, warranty, response time and matching slots.
+
+On first start, an older `world.json` is imported and renamed to `world.json.migrated`. Tests and evals use an in-memory database with the same seed, so they stay reproducible.
+
+**Admin dashboard:** `http://127.0.0.1:8765/admin`, also linked from the user menu. It's local only: requests through the public tunnel get a 404.
+- **Overview:** active providers, upcoming bookings and their value, completed visits and earnings, cancellations (and how many came from providers), jobs done, live holds, providers per service, recent activity.
+- **Providers:** filter by service, area or status, or search. Each provider opens in a drawer:
+  - **Profile:** price, technician, phone, experience, warranty, response time, languages, hours, days off, verified, emergency visits, active.
+  - **Availability:** a 7-day slot grid; click to block or unblock a slot, or open one as an exception.
+  - **Reviews:** add a review, which updates the rating and count. Hide or show reviews. Injection-looking reviews are flagged.
+  - **Bookings.**
+  - **Add provider** creates a new one, which shows up in searches immediately.
+- **Bookings:** every booking. **Mark done** increases the provider's jobs done. **Provider cancels** with a reason emits the provider-cancel event: the customer's agent notices on its own, tells them, and offers a replacement that needs fresh approval.
+- **Simulation:** queue the failures the agent must survive: next booking outcome (succeeds / slot taken / times out but booked / times out, not booked), a price change on the next hold, or a tool failure (error / exception / malformed) for any of the 8 tools.
+- **Activity:** every booking, cancel and reschedule by the agent, and every admin edit.
+
+Every change is written to the database and read by the next tool call, so it reaches the agent at once. `tests/test_admin.py` checks this: price, hours, days off, blocked slots, paused providers, reviews, completions, provider cancels, fault queue and migration.
+
 ## Voice agent
 
 `errand_agent/voice.py` is a LiveKit agent worker. It handles three kinds of call: **browser calls**, **inbound phone calls** (you ring Sorted) and **outbound phone calls** (Sorted rings you).

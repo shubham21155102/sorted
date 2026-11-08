@@ -990,6 +990,7 @@ $('#user-btn').onclick = e => { e.stopPropagation(); openMenu(e.currentTarget, [
   { text: 'Connectors', icon: ICON.plug, run: () => openConnectors() },
   { text: 'Phone number', icon: ICON.phone, run: () => phoneDialog() },
   { text: 'Voice', icon: ICON.mic, run: () => openVoice() },
+  { text: 'Admin dashboard', icon: ICON.plug, run: () => window.open('/admin', '_blank') },
   { text: 'Bookings', icon: ICON.cal, run: () => { S.tab = 'bookings'; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.tab === 'bookings')); setPanel(true); } },
   '-', { label: 'Appearance' },
   { text: 'Light', icon: ICON.sun, run: () => setTheme('light') }, { text: 'Dark', icon: ICON.moon, run: () => setTheme('dark') },

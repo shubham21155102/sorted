@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__BRAND__ Admin</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f7f6f2; --sidebar: #efede6; --panel: #ffffff;
+  --ink: #1f1e1b; --ink-2: #4a4843; --muted: #8a877e; --line: #e3e0d6; --line-2: #d6d2c6;
+  --hover: rgba(31,30,27,.055); --active: rgba(31,30,27,.09);
+  --accent: #c2410c; --accent-soft: #fbe9df;
+  --ok: #1f7a44; --ok-soft: #e4f3ea; --bad: #b42318; --bad-soft: #fbe8e6; --warn: #9a6200; --warn-soft: #fbf1dc;
+  --info: #1d5fb4; --info-soft: #e6effb; --violet: #6741d9; --violet-soft: #efeafd;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.06);
+  --shadow-lg: 0 2px 6px rgba(0,0,0,.06), 0 12px 40px rgba(0,0,0,.14);
+  --sans: Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1d1c1a; --sidebar: #171614; --panel: #232220;
+    --ink: #edebe4; --ink-2: #c9c6bc; --muted: #8f8c83; --line: #34332f; --line-2: #42403b;
+    --hover: rgba(255,255,255,.05); --active: rgba(255,255,255,.08);
+    --accent: #e0703b; --accent-soft: #3a2a20;
+    --ok: #4cc27f; --ok-soft: #1d3326; --bad: #f07167; --bad-soft: #3a2220; --warn: #e3b04b; --warn-soft: #3a3020;
+    --info: #7fb0f5; --info-soft: #1f2a3a; --violet: #a48bff; --violet-soft: #2c2640; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font: 14px/1.5 var(--sans); color: var(--ink); background: var(--bg); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: 0; padding: 0; }
+a { color: inherit; }
+.icon { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.app { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100vh; }
+.side { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 14px 10px; min-height: 0; }
+.brand { display: flex; align-items: center; gap: 9px; padding: 4px 8px 16px; font-weight: 700; font-size: 15px; }
+.brand img { width: 26px; height: 26px; border-radius: 7px; -webkit-user-drag: none; user-select: none; }
+.brand small { font-weight: 500; color: var(--muted); font-size: 12px; }
+.nav { display: grid; gap: 2px; }
+.nav a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; text-decoration: none; color: var(--ink-2); font-weight: 500; }
+.nav a:hover { background: var(--hover); color: var(--ink); }
+.nav a.on { background: var(--active); color: var(--ink); }
+.side .foot { margin-top: auto; padding: 10px; font-size: 12px; color: var(--muted); }
+.side .foot a { color: var(--ink-2); }
+
+.main { min-width: 0; min-height: 0; overflow-y: auto; }
+.page { max-width: 1240px; margin: 0 auto; padding: 26px 28px 60px; }
+.head { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+.head h1 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
+.head p { margin: 2px 0 0; color: var(--muted); }
+.head .grow { flex: 1; min-width: 200px; }
+
+.btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel); font-weight: 500; white-space: nowrap; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.danger { color: var(--bad); }
+.btn.danger:hover { border-color: var(--bad); }
+.btn.sm { padding: 4px 9px; font-size: 12.5px; border-radius: 8px; }
+.btn:disabled { opacity: .55; cursor: default; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.kpi .k { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.kpi .v { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin-top: 4px; }
+.kpi .s { font-size: 12.5px; color: var(--muted); }
+.grid2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; }
+.card h3 { margin: 0 0 10px; font-size: 14px; }
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--hover); }
+.tablewrap { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; }
+.tablewrap table tr:last-child td { border-bottom: 0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { color: var(--muted); }
+.name { font-weight: 600; }
+.sub { font-size: 12px; color: var(--muted); }
+
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--hover); color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); } .pill.info { background: var(--info-soft); color: var(--info); }
+.pill.violet { background: var(--violet-soft); color: var(--violet); }
+.stars { color: #d99a00; letter-spacing: -1px; }
+
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.field, select.field { padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel); outline: none; min-width: 0; }
+.field:focus { border-color: var(--muted); }
+input.field[type=search] { min-width: 220px; }
+
+/* drawer */
+.drawer-back { position: fixed; inset: 0; background: rgba(0,0,0,.28); z-index: 40; animation: fade .12s; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100%); background: var(--bg); z-index: 41; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; animation: slide .16s ease-out; }
+@keyframes slide { from { transform: translateX(30px); opacity: .6; } }
+@keyframes fade { from { opacity: 0; } }
+.drawer-head { padding: 18px 22px 0; border-bottom: 1px solid var(--line); background: var(--panel); }
+.drawer-head .top { display: flex; align-items: flex-start; gap: 12px; }
+.drawer-head h2 { margin: 0; font-size: 19px; letter-spacing: -.01em; }
+.drawer-head .meta { color: var(--muted); font-size: 13px; margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tabs { display: flex; gap: 2px; margin-top: 14px; }
+.tabs button { padding: 8px 12px; border-bottom: 2px solid transparent; color: var(--muted); font-weight: 600; }
+.tabs button.on { color: var(--ink); border-color: var(--accent); }
+.drawer-body { padding: 18px 22px 40px; overflow-y: auto; flex: 1; }
+.x { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; margin-left: auto; }
+.x:hover { background: var(--hover); }
+
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+.form label { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.form label.full { grid-column: 1 / -1; }
+.form .field { width: 100%; font-weight: 400; }
+textarea.field { resize: vertical; min-height: 70px; }
+.checks { display: flex; gap: 16px; flex-wrap: wrap; grid-column: 1 / -1; }
+.checks label { display: flex; align-items: center; gap: 7px; font-weight: 500; }
+.days { display: flex; gap: 6px; flex-wrap: wrap; }
+.days label { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border: 1px solid var(--line-2); border-radius: 8px; font-weight: 500; }
+.days input { accent-color: var(--accent); }
+.form-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; align-items: center; }
+.form-foot .err { color: var(--bad); font-size: 13px; margin-right: auto; }
+
+/* availability grid */
+.avail { overflow-x: auto; }
+.avail table td, .avail table th { padding: 4px; border: 0; text-align: center; }
+.avail th { font-size: 11px; }
+.cell { width: 100%; min-width: 64px; height: 30px; border-radius: 7px; font-size: 11.5px; font-weight: 600; border: 1px solid transparent; }
+.cell.open { background: var(--ok-soft); color: var(--ok); }
+.cell.booked { background: var(--violet-soft); color: var(--violet); cursor: default; }
+.cell.held { background: var(--info-soft); color: var(--info); cursor: default; }
+.cell.blocked { background: var(--bad-soft); color: var(--bad); }
+.cell.off { background: transparent; color: var(--muted); border: 1px dashed var(--line-2); }
+.cell.busy { background: var(--hover); color: var(--muted); }
+.cell.past { background: transparent; color: var(--line-2); cursor: default; }
+.cell.forced { outline: 2px solid var(--ok); outline-offset: -2px; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+
+.review { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.review.hidden { opacity: .5; }
+.review .r-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.review .r-text { margin-top: 4px; }
+.flag { color: var(--bad); font-size: 12px; font-weight: 600; }
+
+.toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 10px; font-weight: 500; z-index: 90; box-shadow: var(--shadow-lg); }
+.empty { padding: 26px; text-align: center; color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bar { height: 8px; border-radius: 99px; background: var(--hover); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.sim { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.sim .card p { color: var(--muted); margin: 0 0 12px; font-size: 13px; }
+.queue { display: grid; gap: 6px; }
+.queue .q { display: flex; gap: 8px; align-items: center; padding: 7px 10px; border-radius: 9px; background: var(--hover); font-size: 13px; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  .side { flex-direction: row; align-items: center; padding: 8px 10px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .brand { padding: 0 8px 0 0; } .brand small, .side .foot { display: none; }
+  .nav { display: flex; } .nav a span { display: none; }
+  .page { padding: 18px 16px 50px; } .grid2 { grid-template-columns: 1fr; } .form { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><img src="/static/brand/logo-128.png" alt="" draggable="false"><div>__BRAND__<br><small>Admin</small></div></div>
+    <nav class="nav" id="nav"></nav>
+    <div class="foot">Changes apply instantly: the agent reads this data on its next search.<br><a href="/">Open the app</a></div>
+  </aside>
+  <main class="main"><div class="page" id="page"></div></main>
+</div>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const I = p => `<svg class="icon" viewBox="0 0 24 24">${p}</svg>`;
+const ICON = {
+  home: I('<path d="M4 11l8-6 8 6v8a1 1 0 01-1 1h-4v-6H9v6H5a1 1 0 01-1-1z"/>'),
+  users: I('<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0111 0M16 5.2a3 3 0 010 5.6M20.5 19a5.5 5.5 0 00-3.5-5.1"/>'),
+  cal: I('<rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M4 10h16M9 3v4M15 3v4"/>'),
+  bolt: I('<path d="M13 3L5 13h6l-1 8 8-10h-6z"/>'),
+  list: I('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>'),
+  x: I('<path d="M6 6l12 12M18 6L6 18"/>'),
+  plus: I('<path d="M12 5v14M5 12h14"/>'),
+  check: I('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+  shield: I('<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/>'),
+  ban: I('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>'),
+  chevl: I('<path d="M15 6l-6 6 6 6"/>'), chevr: I('<path d="M9 6l6 6-6 6"/>'),
+};
+const S = { meta: null, view: 'overview', filters: { service: '', area: '', q: '', status: '' }, bfilters: { status: '', q: '' } };
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json' }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2400); }
+const nice = s => String(s || '').replace(/_/g, ' ');
+const title = s => nice(s).replace(/\b\w/g, c => c.toUpperCase());
+const rupees = n => '₹' + Number(n || 0).toLocaleString('en-IN');
+const fmtSlot = s => { if (!s) return '—'; const d = new Date(s); return d.toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); };
+const stars = r => r ? `<span class="stars">★</span> ${Number(r).toFixed(1)}` : '<span class="muted">new</span>';
+const statusPill = s => `<span class="pill ${{ confirmed: 'ok', completed: '', cancelled: 'warn', cancelled_by_provider: 'bad' }[s] ?? ''}">${esc(nice(s))}</span>`;
+
+const VIEWS = [['overview', 'Overview', ICON.home], ['providers', 'Providers', ICON.users], ['bookings', 'Bookings', ICON.cal],
+               ['simulation', 'Simulation', ICON.bolt], ['activity', 'Activity', ICON.list]];
+function nav() {
+  $('#nav').innerHTML = VIEWS.map(([k, label, ic]) => `<a href="#${k}" class="${S.view === k ? 'on' : ''}">${ic}<span>${label}</span></a>`).join('');
+}
+async function route() {
+  const [v, arg] = (location.hash.slice(1) || 'overview').split('/');
+  S.view = VIEWS.some(x => x[0] === v) ? v : 'overview'; nav();
+  const page = $('#page'); page.innerHTML = '<div class="empty">Loading…</div>';
+  try { await ({ overview, providers, bookings, simulation, activity })[S.view](page); }
+  catch (e) { page.innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; }
+  if (S.view === 'providers' && arg) openProvider(arg);
+}
+addEventListener('hashchange', route);
+
+/* ----------------------------------------------------------------- overview */
+async function overview(page) {
+  const o = await api('/api/admin/overview');
+  const b = o.bookings, p = o.providers, st = b.by_status;
+  const maxP = Math.max(...o.by_service.map(s => s.providers));
+  page.innerHTML = `<div class="head"><div class="grow"><h1>Overview</h1><p>The marketplace the agent books from: ${p.n} providers across ${o.by_service.length} services.</p></div>
+      <button class="btn" onclick="route()">Refresh</button></div>
+    <div class="cards">
+      <div class="card kpi"><div class="k">Active providers</div><div class="v">${p.active}</div><div class="s">${p.n - p.active} paused · avg ${stars(p.avg_rating)}</div></div>
+      <div class="card kpi"><div class="k">Upcoming bookings</div><div class="v">${b.upcoming.n}</div><div class="s">${rupees(b.upcoming.value)} booked · ${b.today} today</div></div>
+      <div class="card kpi"><div class="k">Completed</div><div class="v">${st.completed || 0}</div><div class="s">${rupees(b.completed_value)} earned</div></div>
+      <div class="card kpi"><div class="k">Cancellations</div><div class="v">${(st.cancelled || 0) + (st.cancelled_by_provider || 0)}</div><div class="s">${st.cancelled_by_provider || 0} by providers</div></div>
+      <div class="card kpi"><div class="k">Jobs done (all time)</div><div class="v">${Number(p.jobs).toLocaleString('en-IN')}</div><div class="s">${o.holds_active} slot hold${o.holds_active === 1 ? '' : 's'} active now</div></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Providers by service</h3><table><tr><th>Service</th><th></th><th class="num">Active</th><th class="num">Avg price</th><th class="num">Rating</th></tr>
+        ${o.by_service.map(s => `<tr class="click" onclick="location.hash='providers';S.filters.service='${s.service}'"><td class="name">${esc(title(s.service))}</td>
+          <td style="width:30%"><div class="bar"><i style="width:${Math.round(s.providers / maxP * 100)}%"></i></div></td>
+          <td class="num">${s.active}/${s.providers}</td><td class="num">${rupees(s.avg_price)}</td><td class="num">${stars(s.avg_rating)}</td></tr>`).join('')}</table></div>
+      <div class="card"><h3>Recent activity</h3>${activityList(o.recent) || '<div class="empty">Nothing yet.</div>'}
+        ${o.faults.length ? `<h3 style="margin-top:14px">Queued simulations</h3>${o.faults.map(f => `<div class="sub">• ${esc(faultLabel(f))}</div>`).join('')}` : ''}</div>
+    </div>`;
+}
+function activityList(rows) {
+  return rows.map(r => `<div style="padding:7px 0;border-bottom:1px solid var(--line)"><div class="row"><span class="pill ${r.op.startsWith('admin') ? 'violet' : r.op === 'book' ? 'ok' : r.op.includes('cancel') ? 'warn' : 'info'}">${esc(nice(r.op.replace('admin_', 'admin: ')))}</span>
+    <span class="sub">${esc(fmtSlot(r.at))}</span></div><div class="sub" style="margin-top:2px">${esc(describe(r))}</div></div>`).join('');
+}
+function describe(r) {
+  const bits = [];
+  if (r.booking_id) bits.push(r.booking_id); if (r.provider_id) bits.push(r.provider_id);
+  if (r.slot) bits.push(fmtSlot(r.slot)); if (r.old_slot) bits.push('from ' + fmtSlot(r.old_slot));
+  if (r.price) bits.push(rupees(r.price)); if (r.fields) bits.push('changed ' + r.fields.join(', '));
+  if (r.state) bits.push(r.state); if (r.kind) bits.push(nice(r.kind) + ': ' + (r.tool ? r.tool + ' ' : '') + r.value);
+  if (r.reason) bits.push(r.reason); if (r.rating) bits.push(r.rating + '★');
+  return bits.join(' · ');
+}
+
+/* ---------------------------------------------------------------- providers */
+async function providers(page) {
+  S.meta ||= await api('/api/admin/meta');
+  page.innerHTML = `<div class="head"><div class="grow"><h1>Providers</h1><p>Click a provider to edit their profile, working hours, availability and reviews.</p></div>
+      <button class="btn primary" id="add">${ICON.plus}Add provider</button></div>
+    <div class="filters">
+      <input class="field" type="search" id="q" placeholder="Search name, ID or technician" value="${esc(S.filters.q)}">
+      <select class="field" id="svc"><option value="">All services</option>${S.meta.services.map(s => `<option value="${s}" ${s === S.filters.service ? 'selected' : ''}>${esc(title(s))}</option>`).join('')}</select>
+      <select class="field" id="area"><option value="">All areas</option>${S.meta.areas.map(a => `<option value="${a}" ${a === S.filters.area ? 'selected' : ''}>${esc(title(a))}</option>`).join('')}</select>
+      <select class="field" id="st"><option value="">Any status</option><option value="active" ${S.filters.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${S.filters.status === 'inactive' ? 'selected' : ''}>Paused</option></select>
+      <span class="sub" id="count" style="align-self:center"></span></div>
+    <div class="tablewrap" id="tbl"></div>`;
+  const load = async () => {
+    const qs = new URLSearchParams(S.filters).toString();
+    const { providers } = await api('/api/admin/providers?' + qs);
+    $('#count').textContent = `${providers.length} provider${providers.length === 1 ? '' : 's'}`;
+    $('#tbl').innerHTML = providers.length ? `<table><tr><th>Provider</th><th>Service · area</th><th class="num">Price</th><th class="num">Rating</th><th class="num">Jobs</th><th>Hours</th><th>Next free</th><th>Status</th></tr>
+      ${providers.map(p => `<tr class="click" data-id="${esc(p.provider_id)}"><td><div class="name">${esc(p.name)} ${p.verified ? `<span class="pill ok" title="Background verified">${ICON.shield}</span>` : ''}</div><div class="sub mono">${esc(p.provider_id)} · ${esc(p.technician || '')}</div></td>
+        <td>${esc(title(p.service))}<div class="sub">${esc(title(p.area))}</div></td>
+        <td class="num">${rupees(p.price)}</td><td class="num">${stars(p.rating)}<div class="sub">${p.rating_count} reviews</div></td>
+        <td class="num">${Number(p.jobs_done).toLocaleString('en-IN')}<div class="sub">${p.years_experience} yrs</div></td>
+        <td>${esc(p.work_start)}–${esc(p.work_end)}<div class="sub">${p.days_off.length ? 'Off ' + esc(p.days_off.join(', ')) : 'Open all week'}</div></td>
+        <td>${p.next_available ? esc(fmtSlot(p.next_available)) : '<span class="muted">none in 2 weeks</span>'}${p.upcoming_bookings ? `<div class="sub">${p.upcoming_bookings} upcoming</div>` : ''}</td>
+        <td>${p.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Paused</span>'}</td></tr>`).join('')}</table>` : '<div class="empty">No providers match.</div>';
+    $('#tbl').querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => openProvider(tr.dataset.id));
+  };
+  let t; $('#q').oninput = e => { clearTimeout(t); t = setTimeout(() => { S.filters.q = e.target.value.trim(); load(); }, 200); };
+  $('#svc').onchange = e => { S.filters.service = e.target.value; load(); };
+  $('#area').onchange = e => { S.filters.area = e.target.value; load(); };
+  $('#st').onchange = e => { S.filters.status = e.target.value; load(); };
+  $('#add').onclick = () => openProviderForm();
+  S.reloadProviders = load;
+  await load();
+}
+
+function closeDrawer() { document.querySelectorAll('.drawer, .drawer-back').forEach(e => e.remove()); if (location.hash.includes('/')) history.replaceState(null, '', '#providers'); }
+function drawer(html) {
+  closeDrawer();
+  const back = document.createElement('div'); back.className = 'drawer-back'; back.onclick = closeDrawer;
+  const d = document.createElement('div'); d.className = 'drawer'; d.innerHTML = html;
+  document.body.append(back, d); return d;
+}
+addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+async function openProvider(pid, tab = 'profile', start = null) {
+  const data = await api(`/api/admin/providers/${encodeURIComponent(pid)}` + (start ? `?start=${start}` : ''));
+  const p = data.provider, s = data.summary;
+  history.replaceState(null, '', `#providers/${pid}`);
+  const d = drawer(`<div class="drawer-head"><div class="top"><div><h2>${esc(p.name)}</h2>
+      <div class="meta"><span class="mono">${esc(p.provider_id)}</span>· ${esc(title(p.service))} · ${esc(title(p.area))} ·
+        ${stars(p.rating)} <span>(${p.rating_count})</span> · ${Number(p.jobs_done).toLocaleString('en-IN')} jobs
+        ${p.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Paused</span>'}</div></div>
+      <button class="x" title="Close">${ICON.x}</button></div>
+      <div class="tabs">${[['profile', 'Profile'], ['availability', 'Availability'], ['reviews', `Reviews (${data.reviews.length})`], ['bookings', `Bookings (${data.bookings.length})`]]
+        .map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="drawer-body"></div>`);
+  $('.x', d).onclick = closeDrawer;
+  d.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => openProvider(pid, b.dataset.tab));
+  const body = $('.drawer-body', d);
+  if (tab === 'profile') profileTab(body, p);
+  else if (tab === 'availability') availabilityTab(body, data);
+  else if (tab === 'reviews') reviewsTab(body, data);
+  else bookingsTab(body, data);
+}
+
+function providerFields(p = {}) {
+  const days = p.days_off || [6];
+  return `<label>Name<input class="field" name="name" value="${esc(p.name)}" required></label>
+    <label>Lead technician<input class="field" name="technician" value="${esc(p.technician)}"></label>
+    <label>Visit price (₹)<input class="field" name="price" type="number" min="100" value="${esc(p.price ?? 800)}"></label>
+    <label>Phone<input class="field" name="phone" value="${esc(p.phone ?? '+91-98')}"></label>
+    <label>Experience (years)<input class="field" name="years_experience" type="number" min="0" value="${esc(p.years_experience ?? 1)}"></label>
+    <label>Warranty (days)<input class="field" name="warranty_days" type="number" min="0" value="${esc(p.warranty_days ?? 0)}"></label>
+    <label>Typical response (minutes)<input class="field" name="response_mins" type="number" min="5" value="${esc(p.response_mins ?? 60)}"></label>
+    <label>Languages (comma separated)<input class="field" name="languages" value="${esc((p.languages || ['English', 'Hindi']).join(', '))}"></label>
+    <label>Works from<input class="field" name="work_start" type="time" step="1800" value="${esc(p.work_start ?? '09:00')}"></label>
+    <label>Until<input class="field" name="work_end" type="time" step="1800" value="${esc(p.work_end ?? '19:00')}"></label>
+    <label class="full">Weekly days off<div class="days">${S.meta.weekdays.map((w, i) => `<label><input type="checkbox" name="days_off" value="${i}" ${days.includes(i) ? 'checked' : ''}>${w}</label>`).join('')}</div></label>
+    <label class="full">About<textarea class="field" name="about">${esc(p.about)}</textarea></label>
+    <div class="checks"><label><input type="checkbox" name="verified" ${p.verified ? 'checked' : ''}>Background verified</label>
+      <label><input type="checkbox" name="emergency_service" ${p.emergency_service ? 'checked' : ''}>Emergency visits</label>
+      ${p.provider_id ? `<label><input type="checkbox" name="active" ${p.active ? 'checked' : ''}>Active (shown to customers)</label>` : ''}</div>`;
+}
+function readForm(form) {
+  const f = new FormData(form), out = {};
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    if (el.type === 'checkbox' && el.name !== 'days_off') out[el.name] = el.checked;
+    else if (el.name !== 'days_off') out[el.name] = el.value;
+  }
+  out.days_off = f.getAll('days_off').map(Number);
+  out.languages = String(out.languages || '').split(',').map(s => s.trim()).filter(Boolean);
+  return out;
+}
+function profileTab(body, p) {
+  body.innerHTML = `<form class="form">${providerFields(p)}</form>
+    <div class="form-foot"><span class="err"></span><button class="btn primary" id="save">${ICON.check}Save changes</button></div>`;
+  $('#save', body).onclick = async () => {
+    try {
+      await api(`/api/admin/providers/${p.provider_id}`, { method: 'PATCH', body: readForm($('form', body)) });
+      toast('Saved. The agent sees it on the next search.'); S.reloadProviders?.(); openProvider(p.provider_id, 'profile');
+    } catch (e) { $('.err', body).textContent = e.message; }
+  };
+}
+function availabilityTab(body, data) {
+  const pid = data.provider.provider_id, start = new Date(data.grid_start + 'T00:00');
+  const days = [...new Set(data.grid.map(g => g.slot.slice(0, 10)))];
+  const by = Object.fromEntries(data.grid.map(g => [g.slot, g]));
+  const shift = n => { const d = new Date(start); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const label = { open: 'Open', booked: 'Booked', held: 'Held', blocked: 'Blocked', off: 'Off', busy: 'Taken', past: '—' };
+  body.innerHTML = `<div class="row" style="margin-bottom:10px"><button class="btn sm" id="prev">${ICON.chevl}</button>
+      <b>${start.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${new Date(shift(6)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</b>
+      <button class="btn sm" id="next">${ICON.chevr}</button>
+      <span class="sub">Works ${esc(data.provider.work_start)}–${esc(data.provider.work_end)}${data.provider.days_off.length ? ', off ' + data.provider.days_off.map(i => S.meta.weekdays[i]).join(', ') : ''}</span></div>
+    <div class="avail"><table><tr><th></th>${days.map(d => `<th>${new Date(d + 'T00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' })}</th>`).join('')}</tr>
+      ${data.slot_times.map(t => `<tr><th class="mono">${t}</th>${days.map(d => { const g = by[`${d}T${t}`];
+        return `<td><button class="cell ${g.state}${g.override === 'open' ? ' forced' : ''}" data-slot="${g.slot}" data-state="${g.state}" data-ov="${g.override || ''}"
+          title="${g.booking_id ? 'Booking ' + g.booking_id : ''}">${g.booking_id ? esc(g.booking_id) : label[g.state]}</button></td>`; }).join('')}</tr>`).join('')}</table></div>
+    <div class="legend"><span><i style="background:var(--ok-soft)"></i>Open: customers can book</span><span><i style="background:var(--bad-soft)"></i>Blocked by you</span>
+      <span><i style="background:var(--violet-soft)"></i>Booked</span><span><i style="background:var(--hover)"></i>Taken by other customers</span>
+      <span><i style="border:1px dashed var(--line-2)"></i>Outside working hours</span></div>
+    <p class="sub">Click an open slot to block it (e.g. leave, another job). Click a blocked slot to unblock it, and any other free slot to open it as an exception.</p>`;
+  $('#prev', body).onclick = () => openProvider(pid, 'availability', shift(-7));
+  $('#next', body).onclick = () => openProvider(pid, 'availability', shift(7));
+  body.querySelectorAll('.cell').forEach(c => c.onclick = async () => {
+    const st = c.dataset.state, ov = c.dataset.ov;
+    if (['booked', 'held', 'past'].includes(st)) return;
+    const state = st === 'open' ? (ov === 'open' ? 'clear' : 'blocked') : ov ? 'clear' : 'open';
+    try { await api(`/api/admin/providers/${pid}/slots`, { method: 'POST', body: { slot: c.dataset.slot, state } });
+      openProvider(pid, 'availability', data.grid_start); }
+    catch (e) { toast(e.message); }
+  });
+}
+function reviewsTab(body, data) {
+  const pid = data.provider.provider_id;
+  const suspicious = t => /ignore (all )?previous|system notice|assistant:|call book\(|pre-approved/i.test(t);
+  body.innerHTML = `<div class="card" style="margin-bottom:12px"><h3>Add a review</h3><form class="form" id="rf">
+      <label>Customer<input class="field" name="author" placeholder="e.g. Neha K."></label>
+      <label>Stars<select class="field" name="rating">${[5, 4, 3, 2, 1].map(n => `<option>${n}</option>`).join('')}</select></label>
+      <label class="full">Review<textarea class="field" name="text" placeholder="What was the visit like?"></textarea></label></form>
+      <div class="form-foot"><span class="err"></span><button class="btn primary" id="addr">${ICON.plus}Add review</button></div></div>
+    ${data.reviews.map(r => `<div class="review ${r.hidden ? 'hidden' : ''}"><div class="r-top"><b>${esc(r.author)}</b><span class="stars">${'★'.repeat(r.rating || 0)}</span>
+        <span class="sub">${esc(r.created_at || '')}</span>${suspicious(r.text) ? '<span class="flag">Looks like a prompt-injection attempt</span>' : ''}
+        <button class="btn sm" style="margin-left:auto" data-rid="${r.review_id}" data-hidden="${r.hidden ? 0 : 1}">${r.hidden ? 'Show' : 'Hide'}</button></div>
+      <div class="r-text">${esc(r.text)}</div></div>`).join('')}
+    <p class="sub">Hidden reviews are no longer returned by get_provider. The agent always treats review text as data, never instructions.</p>`;
+  $('#addr', body).onclick = async () => {
+    const f = Object.fromEntries(new FormData($('#rf', body)));
+    try { await api(`/api/admin/providers/${pid}/reviews`, { method: 'POST', body: f }); toast('Review added, rating updated'); openProvider(pid, 'reviews'); S.reloadProviders?.(); }
+    catch (e) { $('.err', body).textContent = e.message; }
+  };
+  body.querySelectorAll('[data-rid]').forEach(b => b.onclick = async () => {
+    await api(`/api/admin/reviews/${b.dataset.rid}`, { method: 'PATCH', body: { hidden: b.dataset.hidden === '1' } }); openProvider(pid, 'reviews');
+  });
+}
+function bookingsTab(body, data) {
+  body.innerHTML = data.bookings.length ? `<div class="tablewrap"><table><tr><th>Booking</th><th>When</th><th class="num">Price</th><th>Status</th></tr>
+    ${data.bookings.map(b => `<tr><td class="mono">${esc(b.booking_id)}<div class="sub">${esc(b.user_id)}</div></td><td>${esc(fmtSlot(b.slot))}</td><td class="num">${rupees(b.price)}</td><td>${statusPill(b.status)}</td></tr>`).join('')}
+    </table></div>` : '<div class="empty">No bookings with this provider yet.</div>';
+}
+function openProviderForm() {
+  const d = drawer(`<div class="drawer-head"><div class="top"><div><h2>Add a provider</h2><div class="meta">They appear in searches for their service and area as soon as you save.</div></div>
+      <button class="x">${ICON.x}</button></div><div style="height:14px"></div></div>
+    <div class="drawer-body"><form class="form">
+      <label>Service<select class="field" name="service">${S.meta.services.map(s => `<option value="${s}" ${s === S.filters.service ? 'selected' : ''}>${esc(title(s))}</option>`).join('')}</select></label>
+      <label>Area<select class="field" name="area">${S.meta.areas.map(a => `<option value="${a}" ${a === S.filters.area ? 'selected' : ''}>${esc(title(a))}</option>`).join('')}</select></label>
+      ${providerFields()}</form>
+      <div class="form-foot"><span class="err"></span><button class="btn primary" id="create">${ICON.plus}Add provider</button></div></div>`);
+  $('.x', d).onclick = closeDrawer;
+  $('#create', d).onclick = async () => {
+    try { const p = await api('/api/admin/providers', { method: 'POST', body: readForm($('form', d)) });
+      toast(`${p.name} added as ${p.provider_id}`); S.reloadProviders?.(); openProvider(p.provider_id); }
+    catch (e) { $('.err', d).textContent = e.message; }
+  };
+}
+
+/* ----------------------------------------------------------------- bookings */
+async function bookings(page) {
+  page.innerHTML = `<div class="head"><div class="grow"><h1>Bookings</h1><p>Every booking in the marketplace. Mark visits done, or cancel as the provider: the customer's agent notices and offers a replacement.</p></div></div>
+    <div class="filters"><input class="field" type="search" id="bq" placeholder="Booking ID or provider" value="${esc(S.bfilters.q)}">
+      <select class="field" id="bs"><option value="">All statuses</option>${['confirmed', 'completed', 'cancelled', 'cancelled_by_provider'].map(s => `<option value="${s}" ${S.bfilters.status === s ? 'selected' : ''}>${esc(title(s))}</option>`).join('')}</select></div>
+    <div class="tablewrap" id="btbl"></div>`;
+  const load = async () => {
+    const { bookings } = await api('/api/admin/bookings?' + new URLSearchParams(S.bfilters));
+    $('#btbl').innerHTML = bookings.length ? `<table><tr><th>Booking</th><th>Provider</th><th>When</th><th class="num">Price</th><th>Status</th><th></th></tr>
+      ${bookings.map(b => `<tr><td class="mono">${esc(b.booking_id)}<div class="sub">customer ${esc(b.user_id)}</div></td>
+        <td><a href="#providers/${esc(b.provider_id)}" class="name" style="text-decoration:none">${esc(b.provider_name)}</a><div class="sub">${esc(title(b.service))} · ${esc(title(b.area))}${b.technician ? ' · ' + esc(b.technician) : ''}</div></td>
+        <td>${esc(fmtSlot(b.slot))}<div class="sub">${b.upcoming ? 'upcoming' : 'past'}</div></td><td class="num">${rupees(b.price)}</td><td>${statusPill(b.status)}</td>
+        <td class="num">${b.status === 'confirmed' ? `<div class="row" style="justify-content:flex-end"><button class="btn sm" data-done="${esc(b.booking_id)}">${ICON.check}Mark done</button>
+          <button class="btn sm danger" data-pc="${esc(b.booking_id)}">${ICON.ban}Provider cancels</button></div>` : ''}</td></tr>`).join('')}</table>` : '<div class="empty">No bookings match.</div>';
+    $('#btbl').querySelectorAll('[data-done]').forEach(b => b.onclick = async () => {
+      try { await api(`/api/admin/bookings/${b.dataset.done}/complete`, { method: 'POST' }); toast('Marked done; provider jobs count updated'); load(); } catch (e) { toast(e.message); } });
+    $('#btbl').querySelectorAll('[data-pc]').forEach(b => b.onclick = async () => {
+      const reason = prompt(`Why is the provider cancelling ${b.dataset.pc}? The customer will be told and offered a replacement.`, 'Technician unwell');
+      if (reason === null) return;
+      try { await api(`/api/admin/bookings/${b.dataset.pc}/provider_cancel`, { method: 'POST', body: { reason } }); toast('Cancelled by provider; the agent will notify the customer'); load(); } catch (e) { toast(e.message); } });
+  };
+  let t; $('#bq').oninput = e => { clearTimeout(t); t = setTimeout(() => { S.bfilters.q = e.target.value.trim(); load(); }, 200); };
+  $('#bs').onchange = e => { S.bfilters.status = e.target.value; load(); };
+  await load();
+}
+
+/* --------------------------------------------------------------- simulation */
+const OUTCOME_LABEL = { success: 'Succeeds', slot_taken: 'Slot taken', timeout_booked: 'Times out, but booked', timeout_not_booked: 'Times out, not booked' };
+function faultLabel(f) {
+  if (f.kind === 'book_outcome') return 'Next booking: ' + (OUTCOME_LABEL[f.value] || f.value);
+  if (f.kind === 'price_drift') return `Next hold quotes ${Number(f.value) >= 0 ? '+' : ''}₹${f.value} vs search`;
+  return `Next ${f.tool} call fails (${f.value})`;
+}
+async function simulation(page) {
+  S.meta ||= await api('/api/admin/meta');
+  const draw = async () => {
+    const { faults } = await api('/api/admin/faults');
+    page.innerHTML = `<div class="head"><div class="grow"><h1>Simulation</h1><p>Force the provider-side failures the agent must handle (timeouts after success, slot taken, price changes, tool errors). Each queued item applies once, to the next matching call. With nothing queued, bookings follow the contract odds: 70% success, 15% slot taken, 15% timeout (half of them actually booked).</p></div></div>
+      <div class="sim">
+        <div class="card"><h3>Next booking outcome</h3><p>What the provider does on the next book() call.</p>
+          <div class="row"><select class="field" id="bo">${S.meta.book_outcomes.map(o => `<option value="${o}">${OUTCOME_LABEL[o]}</option>`).join('')}</select><button class="btn" id="addbo">${ICON.plus}Queue</button></div></div>
+        <div class="card"><h3>Price change on hold</h3><p>The quoted price differs from the search price on the next hold_slot(); approvals for the old price become invalid.</p>
+          <div class="row"><input class="field" id="pd" type="number" value="300" style="width:110px"><button class="btn" id="addpd">${ICON.plus}Queue</button></div></div>
+        <div class="card"><h3>Tool failure</h3><p>The next call to a tool returns an error, throws, or returns garbage.</p>
+          <div class="row"><select class="field" id="tt">${S.meta.tools.map(t => `<option>${t}</option>`).join('')}</select>
+            <select class="field" id="tk">${S.meta.failure_kinds.map(k => `<option>${k}</option>`).join('')}</select><button class="btn" id="addtf">${ICON.plus}Queue</button></div></div>
+        <div class="card"><h3>Always on</h3><p style="margin:0">The first cancel() of each booking fails with a transient 503 and the retry succeeds. reschedule() returns slot_conflict on configured slots (this Saturday 10:00). Holds expire after 10 minutes.</p></div>
+      </div>
+      <div class="card" style="margin-top:14px"><div class="row" style="margin-bottom:8px"><h3 style="margin:0">Queue</h3><span class="sub">${faults.length} pending</span>
+        ${faults.length ? '<button class="btn sm danger" id="clr" style="margin-left:auto">Clear all</button>' : ''}</div>
+        <div class="queue">${faults.map(f => `<div class="q">${ICON.bolt}${esc(faultLabel(f))}</div>`).join('') || '<div class="sub">Nothing queued: the next calls behave normally.</div>'}</div></div>`;
+    const q = async body => { try { await api('/api/admin/faults', { method: 'POST', body }); toast('Queued'); draw(); } catch (e) { toast(e.message); } };
+    $('#addbo').onclick = () => q({ kind: 'book_outcome', value: $('#bo').value });
+    $('#addpd').onclick = () => q({ kind: 'price_drift', value: $('#pd').value });
+    $('#addtf').onclick = () => q({ kind: 'tool_failure', tool: $('#tt').value, value: $('#tk').value });
+    $('#clr')?.addEventListener('click', async () => { await api('/api/admin/faults', { method: 'DELETE' }); toast('Cleared'); draw(); });
+  };
+  await draw();
+}
+
+/* ----------------------------------------------------------------- activity */
+async function activity(page) {
+  const { activity } = await api('/api/admin/activity?limit=200');
+  page.innerHTML = `<div class="head"><div class="grow"><h1>Activity</h1><p>Everything that changed the marketplace: bookings, cancellations and reschedules by the agent, and every admin edit.</p></div>
+    <button class="btn" onclick="route()">Refresh</button></div><div class="card">${activityList(activity) || '<div class="empty">Nothing yet.</div>'}</div>`;
+}
+route();
+</script>
+</body>
+</html>

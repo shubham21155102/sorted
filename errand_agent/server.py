@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlparse
 from .agent import ErrandAgent
 from .app import ARCHIVE_SESSION, default_model_kind, make_agent, make_llm, seed_store
 from .connectors import ConnectorHub
-from . import persona
+from . import admin, persona
 from .models import Catalog, voice_model
 from .clock import SystemClock
 from .mock_env import MockWorld, ScenarioConfig
@@ -154,6 +154,23 @@ def new_session_id() -> str:
 
 ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/$", "index"),
+    ("GET", r"^/admin/?$", "admin_page"),
+    ("GET", r"^/api/admin/meta$", "admin_meta"),
+    ("GET", r"^/api/admin/overview$", "admin_overview"),
+    ("GET", r"^/api/admin/providers$", "admin_providers"),
+    ("POST", r"^/api/admin/providers$", "admin_create_provider"),
+    ("GET", r"^/api/admin/providers/(?P<pid>[\w-]+)$", "admin_provider"),
+    ("PATCH", r"^/api/admin/providers/(?P<pid>[\w-]+)$", "admin_update_provider"),
+    ("POST", r"^/api/admin/providers/(?P<pid>[\w-]+)/slots$", "admin_slot"),
+    ("POST", r"^/api/admin/providers/(?P<pid>[\w-]+)/reviews$", "admin_add_review"),
+    ("PATCH", r"^/api/admin/reviews/(?P<rid>\d+)$", "admin_review"),
+    ("GET", r"^/api/admin/bookings$", "admin_bookings"),
+    ("POST", r"^/api/admin/bookings/(?P<bid>[\w-]+)/complete$", "admin_complete"),
+    ("POST", r"^/api/admin/bookings/(?P<bid>[\w-]+)/provider_cancel$", "admin_provider_cancel"),
+    ("GET", r"^/api/admin/faults$", "admin_faults"),
+    ("POST", r"^/api/admin/faults$", "admin_queue_fault"),
+    ("DELETE", r"^/api/admin/faults$", "admin_clear_faults"),
+    ("GET", r"^/api/admin/activity$", "admin_activity"),
     ("GET", r"^/api/bootstrap$", "bootstrap"),
     ("GET", r"^/api/models$", "models"),
     ("GET", r"^/api/voice/config$", "voice_config"),
@@ -289,6 +306,89 @@ def make_handler(app: App):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+
+        # ------------------------------------------------------------ admin
+        def admin_page(self) -> None:
+            with open(os.path.join(os.path.dirname(STATIC), "admin.html"), "rb") as f:
+                body = f.read().replace(b"__BRAND__", html.escape(NAME).encode())
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _admin(self, fn: Any, code: int = 200) -> None:
+            """Run an admin operation under the app lock (agents use the same world); map errors to 4xx."""
+            try:
+                with app.lock:
+                    out = fn()
+            except LookupError as e:
+                return self._json({"error": str(e).strip("'")}, 404)
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            self._json(out, code)
+
+        def admin_meta(self) -> None:
+            self._json(admin.meta())
+
+        def admin_overview(self) -> None:
+            self._admin(lambda: admin.overview(app.world))
+
+        def admin_providers(self) -> None:
+            self._admin(lambda: {"providers": admin.providers(app.world, self.q.get("service", ""), self.q.get("area", ""),
+                                                             self.q.get("q", ""), self.q.get("status", ""))})
+
+        def admin_create_provider(self) -> None:
+            b = self._body()
+            self._admin(lambda: admin.create_provider(app.world, b), 201)
+
+        def admin_provider(self, pid: str) -> None:
+            def get() -> Any:
+                d = admin.provider_detail(app.world, pid, self.q.get("start"))
+                if d is None:
+                    raise LookupError("Provider not found")
+                return d
+            self._admin(get)
+
+        def admin_update_provider(self, pid: str) -> None:
+            b = self._body()
+            self._admin(lambda: admin.update_provider(app.world, pid, b))
+
+        def admin_slot(self, pid: str) -> None:
+            b = self._body()
+            self._admin(lambda: (admin.set_slot(app.world, pid, b.get("slot", ""), b.get("state", ""), b.get("reason", "")),
+                                 {"ok": True})[1])
+
+        def admin_add_review(self, pid: str) -> None:
+            b = self._body()
+            self._admin(lambda: admin.add_review(app.world, pid, b), 201)
+
+        def admin_review(self, rid: str) -> None:
+            b = self._body()
+            self._admin(lambda: (admin.set_review_hidden(app.world, int(rid), bool(b.get("hidden"))), {"ok": True})[1])
+
+        def admin_bookings(self) -> None:
+            self._admin(lambda: {"bookings": admin.bookings(app.world, self.q.get("status", ""), self.q.get("q", ""))})
+
+        def admin_complete(self, bid: str) -> None:
+            self._admin(lambda: admin.complete_booking(app.world, bid))
+
+        def admin_provider_cancel(self, bid: str) -> None:
+            b = self._body()
+            self._admin(lambda: admin.provider_cancel(app.world, bid, b.get("reason", "")))
+
+        def admin_faults(self) -> None:
+            self._admin(lambda: {"faults": app.world.faults()})
+
+        def admin_queue_fault(self, ) -> None:
+            b = self._body()
+            self._admin(lambda: {"faults": admin.queue_fault(app.world, b)})
+
+        def admin_clear_faults(self) -> None:
+            self._admin(lambda: (app.world.clear_faults(self.q.get("kind") or None), {"faults": app.world.faults()})[1])
+
+        def admin_activity(self) -> None:
+            self._admin(lambda: {"activity": admin.activity(app.world, int(self.q.get("limit", 100)))})
 
         def index(self) -> None:
             with open(STATIC, "rb") as f:

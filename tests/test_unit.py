@@ -157,3 +157,19 @@ def test_mock_contracts():
     assert w.book(h["hold_id"], "k")["error"] == "hold_expired"
     assert w.cancel("BK-1002", "c1")["http_status"] == 503
     assert w.cancel("BK-1002", "c1")["status"] == "cancelled"
+
+
+def test_chat_sessions_history():
+    store = Store()
+    store.create_session("c1", "u1", "2026-11-08T09:00:00")
+    store.add_message("c1", "user", "Find a plumber for my kitchen tap this week", "2026-11-08T09:00:01", "u1")
+    store.add_message("c1", "assistant", "On it", "2026-11-08T09:00:02", "u1")
+    store.add_message("c2", "assistant", "Provider cancelled", "2026-11-08T10:00:00", "u1", kind="proactive")
+    rows = store.sessions("u1")
+    assert [r["id"] for r in rows] == ["c2", "c1"]  # most recently updated first
+    assert rows[1]["title"].startswith("Find a plumber") and rows[1]["n"] == 2
+    assert store.messages("c2")[0]["kind"] == "proactive"
+    store.rename_session("c1", "Kitchen tap")
+    store.delete_session("c2")
+    assert [(r["id"], r["title"]) for r in store.sessions("u1")] == [("c1", "Kitchen tap")]
+    assert store.messages("c2") == []

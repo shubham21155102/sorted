@@ -45,9 +45,10 @@ def sanitize(obj: Any, max_str: int = 300) -> Any:
 
 
 class Tracer:
-    def __init__(self, path: str | None, clock: Clock):
+    def __init__(self, path: str | None, clock: Clock, session_id: str | None = None):
         self.path = path
         self.clock = clock
+        self.session_id = session_id
         self.events: list[dict[str, Any]] = []
         self.run_id: str | None = None
         self._lock = threading.Lock()
@@ -60,7 +61,8 @@ class Tracer:
         return self.run_id
 
     def emit(self, event: str, **kw: Any) -> dict[str, Any]:
-        rec = {"ts": self.clock.now().isoformat(), "run_id": self.run_id, "event": event, **kw}
+        rec = {"ts": self.clock.now().isoformat(), "session_id": self.session_id, "run_id": self.run_id,
+               "event": event, **kw}
         with self._lock:
             self.events.append(rec)
             if self.path:

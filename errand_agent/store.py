@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS memories (
   confirmed INTEGER, status TEXT, evidence TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS processed_events (
   event_id TEXT PRIMARY KEY, user_id TEXT, decision TEXT, at TEXT);
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY, user_id TEXT, title TEXT, created_at TEXT, updated_at TEXT);
 """
 
 
@@ -32,15 +34,45 @@ class Store:
         self.path = path
         self.db = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
+        if path != ":memory:":
+            self.db.execute("PRAGMA journal_mode=WAL")  # lets the web server read while the agent writes
         self.db.executescript(SCHEMA)
+        try:  # migration for databases created before message kinds existed
+            self.db.execute("ALTER TABLE messages ADD COLUMN kind TEXT DEFAULT 'chat'")
+        except sqlite3.OperationalError:
+            pass
 
     def close(self) -> None:
         self.db.close()
 
     # ------------------------------------------------------------ messages
-    def add_message(self, session_id: str, role: str, content: str, ts: str, user_id: str = "") -> None:
-        self.db.execute("INSERT INTO messages(session_id, user_id, role, content, ts) VALUES (?,?,?,?,?)",
-                        (session_id, user_id, role, content, ts))
+    def add_message(self, session_id: str, role: str, content: str, ts: str, user_id: str = "",
+                    kind: str = "chat") -> None:
+        """kind: chat | proactive (sent without a user prompt) | recovery (sent after a restart)."""
+        self.db.execute("INSERT INTO messages(session_id, user_id, role, content, ts, kind) VALUES (?,?,?,?,?,?)",
+                        (session_id, user_id, role, content, ts, kind))
+        title = " ".join(content.split())[:60] if role == "user" else None
+        self.db.execute("INSERT OR IGNORE INTO sessions(id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)",
+                        (session_id, user_id, title, ts, ts))
+        self.db.execute("UPDATE sessions SET updated_at=?, title=COALESCE(title, ?) WHERE id=?", (ts, title, session_id))
+
+    # ------------------------------------------------------------ sessions
+    def create_session(self, session_id: str, user_id: str, ts: str, title: str | None = None) -> None:
+        self.db.execute("INSERT OR IGNORE INTO sessions(id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)",
+                        (session_id, user_id, title, ts, ts))
+
+    def sessions(self, user_id: str) -> list[dict[str, Any]]:
+        rows = self.db.execute("SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS n "
+                               "FROM sessions s WHERE user_id=? ORDER BY updated_at DESC", (user_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def rename_session(self, session_id: str, title: str) -> None:
+        self.db.execute("UPDATE sessions SET title=? WHERE id=?", (title, session_id))
+
+    def delete_session(self, session_id: str) -> None:
+        """Deletes the chat itself. The approval ledger is kept: it's the audit trail of side effects."""
+        for t in ("messages", "workflow", "sessions"):
+            self.db.execute(f"DELETE FROM {t} WHERE {'id' if t == 'sessions' else 'session_id'}=?", (session_id,))
 
     def redact_messages(self, user_id: str, value: str, replacement: str = "[forgotten]") -> int:
         """Remove a forgotten fact from every stored message of this user."""
@@ -54,7 +86,7 @@ class Store:
         return n
 
     def messages(self, session_id: str) -> list[dict[str, Any]]:
-        rows = self.db.execute("SELECT role, content, ts FROM messages WHERE session_id=? ORDER BY id",
+        rows = self.db.execute("SELECT role, content, ts, kind FROM messages WHERE session_id=? ORDER BY id",
                                (session_id,)).fetchall()
         return [dict(r) for r in rows]
 

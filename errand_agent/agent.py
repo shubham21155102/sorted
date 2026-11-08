@@ -74,7 +74,7 @@ class ErrandAgent:
         self.clock = clock or SystemClock()
         self.limits = limits or Limits()
         self.model_name = model_name or getattr(llm, "model", "scripted")
-        self.tracer = Tracer(trace_path, self.clock)
+        self.tracer = Tracer(trace_path, self.clock, session_id)
         self.memory = MemoryManager(store, self.clock, user_id)
         self.gate = ApprovalGate(store, self.clock, session_id, user_id, self._emit)
         self.executor = Executor(self._provider_call, store, self.clock, self._emit, fault_hook=fault_hook,
@@ -161,7 +161,8 @@ class ErrandAgent:
             else:
                 msg = f"⚠️ I couldn't reach the provider to confirm [{p['id']}] yet; I'll keep checking."
             self.outbox.append(msg)
-            self.store.add_message(self.session_id, "assistant", msg, self.clock.now().isoformat(), self.user_id)
+            self.store.add_message(self.session_id, "assistant", msg, self.clock.now().isoformat(), self.user_id,
+                                   kind="recovery")
             if out["status"] in ("executed", "failed"):
                 self.state.last_outcome = out
                 self._transition("completed" if out["status"] == "executed" else "failed", "recovery")
@@ -246,7 +247,8 @@ class ErrandAgent:
             self._emit("proactive", decision="notify_only", reason="user already has another upcoming booking for this service")
             msg = (f"Heads-up: {b['provider_name']} cancelled your {b['service']} visit on {human_slot(b['slot'])}. "
                    f"You still have another upcoming {b['service']} booking, so I haven't looked for a replacement.")
-            self.store.add_message(self.session_id, "assistant", msg, self.clock.now().isoformat(), self.user_id)
+            self.store.add_message(self.session_id, "assistant", msg, self.clock.now().isoformat(), self.user_id,
+                                   kind="proactive")
             return msg
         self._emit("proactive", decision="notify_and_find_replacement", booking=b)
         slot_day = datetime.fromisoformat(b["slot"]).date()
@@ -270,7 +272,8 @@ class ErrandAgent:
                  f"{b['provider_id']}), hold the best slot and call request_approval. Never book without approval."]
         trigger = f"[automated event] provider_cancelled booking {b['booking_id']}"
         reply = self._run_loop([{"role": "user", "content": trigger}], notes, trigger)
-        self.store.add_message(self.session_id, "assistant", reply, self.clock.now().isoformat(), self.user_id)
+        self.store.add_message(self.session_id, "assistant", reply, self.clock.now().isoformat(), self.user_id,
+                               kind="proactive")
         self._save()
         return reply
 

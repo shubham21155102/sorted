@@ -62,10 +62,24 @@ def build(data_dir: str = "run", model: str | None = None, session_id: str = "s1
     new_db = not os.path.exists(db)
     store = Store(db)
     if new_db:
-        seed_all(store, session_id, user_id, history_pairs=150)
+        seed_store(store, user_id)
     clock = SystemClock()
     world = MockWorld(config or ScenarioConfig(), clock, world_path)
     kind = model or default_model_kind()
-    return ErrandAgent(llm=make_llm(kind), world=world, store=store, user_id=user_id, session_id=session_id,
-                       clock=clock, trace_path=trace, limits=Limits(max_wall_seconds=180),
+    return make_agent(store, world, make_llm(kind), kind, session_id, user_id, trace, context_budget)
+
+
+ARCHIVE_SESSION = "archive"
+
+
+def seed_store(store: Store, user_id: str = "u1") -> None:
+    """54 memories plus a long prior conversation, kept in its own 'Earlier conversations' chat."""
+    seed_all(store, ARCHIVE_SESSION, user_id, history_pairs=150)
+    store.rename_session(ARCHIVE_SESSION, "Earlier conversations (imported)")
+
+
+def make_agent(store: Store, world: MockWorld, llm: Any, kind: str, session_id: str, user_id: str,
+               trace_path: str, context_budget: int = 12000) -> ErrandAgent:
+    return ErrandAgent(llm=llm, world=world, store=store, user_id=user_id, session_id=session_id,
+                       clock=world.clock, trace_path=trace_path, limits=Limits(max_wall_seconds=180),
                        context_budget=context_budget, model_name=kind)

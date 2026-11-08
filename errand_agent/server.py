@@ -1,60 +1,145 @@
-"""Local demo server: chat on the left, live trace on the right.
+"""Local web app: chat history sidebar, conversation view, and a trace / memory / bookings panel.
 
-    python -m errand_agent.server [--model live|scripted] [--port 8765] [--fresh]
+    python -m errand_agent.server [--model litellm|scripted] [--port 8765] [--fresh]
 
-A background poller calls agent.process_events() every few seconds, so provider
-cancellations surface in the chat without any user message.
+One ErrandAgent per chat session; all chats share the same user memory, mock
+provider world and model. A background poller calls process_events() so provider
+cancellations show up in the chat without a user message.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import threading
 import time
+import uuid
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
-from .app import build
+from .agent import ErrandAgent
+from .app import ARCHIVE_SESSION, default_model_kind, make_agent, make_llm, seed_store
+from .clock import SystemClock
+from .mock_env import MockWorld, ScenarioConfig
+from .store import Store
 
 STATIC = os.path.join(os.path.dirname(__file__), "static", "index.html")
+USER_ID = "u1"
+USER_NAME = os.environ.get("ERRAND_USER_NAME", "Shubham")
 
 
-class Demo:
+class App:
     def __init__(self, data: str, model: str | None, fresh: bool):
-        self.data, self.model = data, model
-        self.lock = threading.Lock()
-        self.agent = build(data, model, fresh=fresh)
-        self.outbox: list[dict[str, Any]] = [{"role": "agent", "text": m, "proactive": True} for m in self.agent.outbox]
+        self.data = data
+        self.kind = model or default_model_kind()
+        os.makedirs(data, exist_ok=True)
+        self.db_path = os.path.join(data, "agent.sqlite")
+        self.world_path = os.path.join(data, "world.json")
+        self.trace_path = os.path.join(data, "trace.jsonl")
+        if fresh:
+            for p in (self.db_path, self.db_path + "-wal", self.db_path + "-shm", self.world_path, self.trace_path):
+                if os.path.exists(p):
+                    os.remove(p)
+        self.lock = threading.RLock()  # serialises everything that mutates agent/world state
+        self._boot()
+
+    def _boot(self) -> None:
+        new = not os.path.exists(self.db_path)
+        self.store = Store(self.db_path)
+        if new:
+            seed_store(self.store, USER_ID)
+        self.reader = Store(self.db_path)  # separate connection: reads never wait on a running agent turn
+        self.world = MockWorld(ScenarioConfig(), SystemClock(), self.world_path)
+        self.llm = make_llm(self.kind)
+        self.agents: dict[str, ErrandAgent] = {}
+
+    def agent(self, sid: str) -> ErrandAgent:
+        with self.lock:
+            if sid not in self.agents:
+                self.agents[sid] = make_agent(self.store, self.world, self.llm, self.kind, sid, USER_ID,
+                                              self.trace_path)
+            return self.agents[sid]
 
     def restart(self) -> None:
-        """Simulate a process restart: rebuild everything from disk (recovery runs on startup)."""
+        """Simulate a process restart: drop all in-memory state and rebuild from disk."""
         with self.lock:
-            self.agent.store.close()
-            self.agent = build(self.data, self.model)
-            self.outbox += [{"role": "agent", "text": m, "proactive": True} for m in self.agent.outbox]
+            self.store.close()
+            self.reader.close()
+            self._boot()
+
+    def latest_session(self) -> str | None:
+        rows = [s for s in self.reader.sessions(USER_ID) if s["id"] != ARCHIVE_SESSION]
+        return rows[0]["id"] if rows else None
 
     def poll_events(self) -> None:
         while True:
             time.sleep(3)
             try:
+                if not self.world.poll_events(USER_ID):
+                    continue
+                sid = self.latest_session()
                 with self.lock:
-                    for m in self.agent.process_events():
-                        self.outbox.append({"role": "agent", "text": m, "proactive": True})
+                    if not sid:
+                        sid = new_session_id()
+                        self.store.create_session(sid, USER_ID, now(), "Updates")
+                    self.agent(sid).process_events()
             except Exception as e:  # never let the poller die silently
-                self.outbox.append({"role": "system", "text": f"event poller error: {e}"})
+                print(f"event poller error: {e}")
+
+    def trace(self, sid: str, since: int) -> list[dict[str, Any]]:
+        if not os.path.exists(self.trace_path):
+            return []
+        out = []
+        with open(self.trace_path) as f:
+            for line in f:
+                if f'"session_id": "{sid}"' in line:
+                    out.append(line)
+        return [json.loads(x) for x in out[since:]]
 
 
-def make_handler(demo: Demo):
+def now() -> str:
+    return datetime.now().replace(microsecond=0).isoformat()
+
+
+def new_session_id() -> str:
+    return "c-" + uuid.uuid4().hex[:10]
+
+
+ROUTES: list[tuple[str, str, str]] = [
+    ("GET", r"^/$", "index"),
+    ("GET", r"^/api/bootstrap$", "bootstrap"),
+    ("GET", r"^/api/sessions$", "list_sessions"),
+    ("POST", r"^/api/sessions$", "create_session"),
+    ("GET", r"^/api/sessions/(?P<sid>[\w-]+)/messages$", "messages"),
+    ("POST", r"^/api/sessions/(?P<sid>[\w-]+)/chat$", "chat"),
+    ("GET", r"^/api/sessions/(?P<sid>[\w-]+)/trace$", "trace"),
+    ("GET", r"^/api/sessions/(?P<sid>[\w-]+)/state$", "state"),
+    ("PATCH", r"^/api/sessions/(?P<sid>[\w-]+)$", "rename"),
+    ("DELETE", r"^/api/sessions/(?P<sid>[\w-]+)$", "delete"),
+    ("GET", r"^/api/memories$", "memories"),
+    ("POST", r"^/api/memories/(?P<mid>[\w-]+)/forget$", "forget"),
+    ("GET", r"^/api/bookings$", "bookings"),
+    ("POST", r"^/api/dev/force$", "dev_force"),
+    ("POST", r"^/api/dev/provider_cancel$", "dev_cancel"),
+    ("POST", r"^/api/dev/restart$", "dev_restart"),
+]
+
+
+def make_handler(app: App):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a: Any) -> None:
             pass
 
+        # ------------------------------------------------------------ io
         def _json(self, obj: Any, code: int = 200) -> None:
             body = json.dumps(obj, default=str).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
 
@@ -62,71 +147,144 @@ def make_handler(demo: Demo):
             n = int(self.headers.get("Content-Length") or 0)
             return json.loads(self.rfile.read(n) or b"{}")
 
-        def do_GET(self) -> None:
-            if self.path in ("/", "/index.html"):
-                with open(STATIC, "rb") as f:
-                    body = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(body)
-                return
-            if self.path.startswith("/api/poll"):
-                q = dict(p.split("=") for p in self.path.split("?", 1)[1].split("&")) if "?" in self.path else {}
-                t, o = int(q.get("trace", 0)), int(q.get("outbox", 0))
-                with demo.lock:
-                    ev = demo.agent.tracer.events
-                    snap = demo.agent.snapshot()
-                    self._json({"trace": ev[t:], "trace_len": len(ev), "outbox": demo.outbox[o:],
-                                "outbox_len": len(demo.outbox), "state": snap["state"],
-                                "memories": snap["memories"], "model": demo.agent.model_name,
-                                "bookings": demo.agent.world.list_bookings(demo.agent.user_id)["bookings"]})
-                return
+        def _route(self, method: str) -> None:
+            url = urlparse(self.path)
+            self.q = {k: v[0] for k, v in parse_qs(url.query).items()}
+            for m, pat, name in ROUTES:
+                if m == method:
+                    match = re.match(pat, url.path)
+                    if match:
+                        try:
+                            return getattr(self, name)(**match.groupdict())
+                        except Exception as e:
+                            return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
             self._json({"error": "not found"}, 404)
 
+        def do_GET(self) -> None:
+            self._route("GET")
+
         def do_POST(self) -> None:
+            self._route("POST")
+
+        def do_PATCH(self) -> None:
+            self._route("PATCH")
+
+        def do_DELETE(self) -> None:
+            self._route("DELETE")
+
+        # -------------------------------------------------------- handlers
+        def index(self) -> None:
+            with open(STATIC, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def bootstrap(self) -> None:
+            self._json({"user": {"id": USER_ID, "name": USER_NAME}, "model": app.kind,
+                        "model_name": os.environ.get("ERRAND_MODEL") if app.kind == "litellm" else app.kind})
+
+        def list_sessions(self) -> None:
+            self._json({"sessions": [s for s in app.reader.sessions(USER_ID) if s["n"] or s["title"]]})
+
+        def create_session(self) -> None:
+            sid = new_session_id()
+            with app.lock:
+                app.store.create_session(sid, USER_ID, now())
+            self._json({"id": sid})
+
+        def messages(self, sid: str) -> None:
+            msgs = app.reader.messages(sid)
+            since = int(self.q.get("since", 0))
+            self._json({"messages": msgs[since:], "count": len(msgs)})
+
+        def chat(self, sid: str) -> None:
+            text = (self._body().get("text") or "").strip()
+            if not text:
+                return self._json({"error": "empty message"}, 400)
+            with app.lock:
+                reply = app.agent(sid).handle_user_message(text)
+            self._json({"reply": reply, "count": len(app.reader.messages(sid))})
+
+        def trace(self, sid: str) -> None:
+            ev = app.trace(sid, int(self.q.get("since", 0)))
+            self._json({"events": ev})
+
+        def state(self, sid: str) -> None:
+            a = app.agents.get(sid)
+            self._json({"state": a._state_view() if a else None})
+
+        def rename(self, sid: str) -> None:
+            title = (self._body().get("title") or "").strip()[:80]
+            if title:
+                with app.lock:
+                    app.store.rename_session(sid, title)
+            self._json({"ok": True})
+
+        def delete(self, sid: str) -> None:
+            with app.lock:
+                app.agents.pop(sid, None)
+                app.store.delete_session(sid)
+            self._json({"ok": True})
+
+        def memories(self) -> None:
+            mems = [m for m in app.reader.memories(USER_ID) if m["status"] == "active"]
+            self._json({"memories": [{k: m[k] for k in ("id", "key", "value", "scope", "source", "confirmed",
+                                                        "updated_at")} for m in mems]})
+
+        def forget(self, mid: str) -> None:
+            from .memory import MemoryManager
+            with app.lock:
+                gone = MemoryManager(app.store, app.world.clock, USER_ID).forget(mid=mid)
+            self._json({"forgotten": [m["id"] for m in gone]})
+
+        def bookings(self) -> None:
+            with app.lock:
+                rows = app.world.list_bookings(USER_ID)["bookings"]
+            t = app.world.clock.now().isoformat()
+            self._json({"bookings": [{**b, "upcoming": b["slot"] > t} for b in rows]})
+
+        def dev_force(self) -> None:
             b = self._body()
-            if self.path == "/api/chat":
-                with demo.lock:
-                    reply = demo.agent.handle_user_message(b.get("text", ""))
-                self._json({"reply": reply})
-            elif self.path == "/api/provider_cancel":
-                with demo.lock:
-                    up = [x for x in demo.agent.world.list_bookings(demo.agent.user_id)["bookings"]
-                          if x["status"] == "confirmed" and x["slot"] > demo.agent.clock.now().isoformat()]
-                    bid = b.get("booking_id") or (up[-1]["booking_id"] if up else None)
-                    if bid:
-                        demo.agent.world.simulate_provider_cancellation(bid)
-                self._json({"cancelled": bid})
-            elif self.path == "/api/force":
-                with demo.lock:
-                    st = demo.agent.world.state
-                    if b.get("book_outcome"):
-                        st["forced_book_outcomes"].append(b["book_outcome"])
-                    if b.get("price_drift"):
-                        st["forced_price_drift"].append(int(b["price_drift"]))
-                    demo.agent.world._save()
-                self._json({"ok": True})
-            elif self.path == "/api/restart":
-                demo.restart()
-                self._json({"ok": True})
-            else:
-                self._json({"error": "not found"}, 404)
+            with app.lock:
+                st = app.world.state
+                if b.get("book_outcome"):
+                    st["forced_book_outcomes"].append(b["book_outcome"])
+                if b.get("price_drift"):
+                    st["forced_price_drift"].append(int(b["price_drift"]))
+                app.world._save()
+            self._json({"ok": True})
+
+        def dev_cancel(self) -> None:
+            with app.lock:
+                t = app.world.clock.now().isoformat()
+                up = [x for x in app.world.list_bookings(USER_ID)["bookings"]
+                      if x["status"] == "confirmed" and x["slot"] > t]
+                bid = up[-1]["booking_id"] if up else None
+                if bid:
+                    app.world.simulate_provider_cancellation(bid)
+            self._json({"cancelled": bid})
+
+        def dev_restart(self) -> None:
+            app.restart()
+            self._json({"ok": True})
 
     return H
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default=None)
+    ap.add_argument("--model", default=None, help="litellm | scripted | replay:<cassette.jsonl>")
     ap.add_argument("--data", default="run")
     ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--fresh", action="store_true")
+    ap.add_argument("--fresh", action="store_true", help="wipe local state and reseed")
     a = ap.parse_args()
-    demo = Demo(a.data, a.model, a.fresh)
-    threading.Thread(target=demo.poll_events, daemon=True).start()
-    srv = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(demo))
-    print(f"Errand demo ({demo.agent.model_name}) on http://127.0.0.1:{a.port}")
+    app = App(a.data, a.model, a.fresh)
+    threading.Thread(target=app.poll_events, daemon=True).start()
+    srv = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(app))
+    print(f"Errand ({app.kind}) on http://127.0.0.1:{a.port}")
     srv.serve_forever()
 
 

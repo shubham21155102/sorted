@@ -1,3 +1,4 @@
 litellm>=1.70
-mcp>=1.0  # litellm imports its MCP handler on tool-calling requests
+mcp>=1.0        # litellm imports its MCP handler on tool-calling requests
+tenacity>=8     # litellm's retry path (num_retries)
 pytest>=8

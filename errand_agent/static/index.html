@@ -116,7 +116,7 @@ svg { display: block; }
 .tag.proactive { background: var(--violet-soft); color: var(--violet); }
 .tag.recovery { background: var(--warn-soft); color: var(--warn); }
 .tag svg { width: 13px; height: 13px; }
-.msg-actions { display: flex; gap: 2px; margin-top: 6px; opacity: 0; transition: opacity .15s; }
+.msg-actions { display: flex; gap: 2px; margin-top: 6px; opacity: 0; transition: opacity .15s; align-items: center; }
 .msg.assistant:hover .msg-actions { opacity: 1; }
 .msg-actions .icon-btn { width: 28px; height: 28px; }
 .msg-actions .icon { width: 15px; height: 15px; }
@@ -225,6 +225,28 @@ svg { display: block; }
 .item .forget:hover { background: var(--bad-soft); }
 .empty-note { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 13.5px; }
 
+/* model picker */
+.model-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; font-size: 13px; color: var(--ink-2); max-width: 260px; }
+.model-btn:hover { background: var(--hover); color: var(--ink); }
+.model-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.model-btn .icon { width: 14px; height: 14px; flex: none; }
+button.model-pill { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+button.model-pill:hover { color: var(--ink); border-color: var(--line-2); }
+.picker { position: fixed; z-index: 55; width: 360px; max-width: calc(100vw - 16px); max-height: min(480px, 70vh); display: flex; flex-direction: column;
+  background: var(--raised); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: var(--shadow-lg); animation: rise .12s ease-out; overflow: hidden; }
+.picker-search { padding: 10px; border-bottom: 1px solid var(--line); }
+.picker-search input { width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); outline: none; font-size: 13.5px; }
+.picker-list { overflow-y: auto; padding: 4px 6px 8px; }
+.picker-group { font-size: 11.5px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; padding: 10px 8px 4px; }
+.picker-item { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; text-align: left; padding: 7px 9px; border-radius: 8px; }
+.picker-item:hover, .picker-item.kb { background: var(--hover); }
+.picker-item .nm { font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-item .sub { grid-column: 1; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-item.off .nm, .picker-item.off .sub { opacity: .45; }
+.picker-item .ck { grid-row: 1 / span 2; grid-column: 2; align-self: center; color: var(--accent); width: 16px; height: 16px; }
+.picker-foot { border-top: 1px solid var(--line); padding: 7px 12px; font-size: 11.5px; color: var(--muted); }
+.model-tag { font-size: 12px; color: var(--muted); align-self: center; margin-left: 4px; }
+
 /* menus, toasts, scrollbars */
 .menu { position: fixed; z-index: 50; min-width: 220px; background: var(--raised); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 5px; animation: rise .12s ease-out; }
 .menu button { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px 10px; border-radius: 8px; font-size: 14px; }
@@ -273,7 +295,7 @@ svg { display: block; }
     <div class="topbar">
       <button class="icon-btn" id="open-sidebar" title="Open sidebar"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
       <div class="title" id="chat-title"></div>
-      <span class="model-pill" id="model-pill"></span>
+      <button class="model-pill" id="model-pill" title="Change model"></button>
       <button class="icon-btn" id="demo-btn" title="Demo controls"><svg class="icon" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
       <button class="icon-btn" id="panel-btn" title="Trace, memory and bookings" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg></button>
     </div>
@@ -299,7 +321,8 @@ svg { display: block; }
     <form class="composer">
       <textarea rows="1" placeholder="How can I help with your errands?"></textarea>
       <div class="composer-row">
-        <span class="kbd">Enter to send · Shift+Enter for a new line</span><span class="spacer"></span>
+        <button type="button" class="model-btn" title="Choose model"><span></span><svg class="icon" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg></button>
+        <span class="spacer"></span><span class="kbd">Enter to send</span>
         <button class="send" type="submit" disabled title="Send"><svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
       </div>
     </form>
@@ -309,7 +332,8 @@ svg { display: block; }
 <script>
 /* ======================================================================= state */
 const S = { user: null, model: '', sessions: [], sid: null, count: 0, busy: false, traceSince: 0,
-            tab: 'trace', panel: false, hiddenKinds: new Set(['context']), liveSteps: [], search: '' };
+            tab: 'trace', panel: false, hiddenKinds: new Set(['context']), liveSteps: [], search: '',
+            models: [], defaultModel: 'scripted', chatModel: null, homeModel: null };
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
 const ICON = {
@@ -434,6 +458,66 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); newChat(); }
 });
 
+/* ================================================================ model picker */
+const modelInfo = id => S.models.find(m => m.id === id) || { id, label: id, family: 'Other', provider: '' };
+const modelLabel = id => id === 'scripted' ? 'Offline (scripted)' : modelInfo(id).label;
+const perM = c => c == null ? null : (c * 1e6 < 1 ? (c * 1e6).toFixed(2) : (c * 1e6).toFixed(c * 1e6 < 10 ? 2 : 0));
+function currentModel() { return S.sid ? (S.chatModel || S.defaultModel) : (S.homeModel || S.defaultModel); }
+async function loadModels(refresh = false) {
+  try { const r = await api('/api/models' + (refresh ? '?refresh=1' : '')); S.models = r.models; S.defaultModel = r.default; S.modelSource = r.source; } catch {}
+  try { const saved = localStorage.getItem('errand.model'); if (saved && S.models.some(m => m.id === saved)) S.homeModel = saved; } catch {}
+  syncModelUI();
+}
+function syncModelUI() {
+  const id = currentModel();
+  document.querySelectorAll('.model-btn span').forEach(e => e.textContent = modelLabel(id));
+  $('#model-pill').innerHTML = `${esc(modelLabel(id))}<svg class="icon" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M7 10l5 5 5-5"/></svg>`;
+}
+function openModelPicker(anchor) {
+  closeMenus();
+  const p = document.createElement('div'); p.className = 'menu picker';
+  p.innerHTML = `<div class="picker-search"><input placeholder="Search ${S.models.length} models" autocomplete="off"></div><div class="picker-list"></div>
+    <div class="picker-foot">${S.sid ? 'Applies to this chat from your next message.' : 'Used for the new chat.'} Prices per 1M tokens (in / out).</div>`;
+  const list = $('.picker-list', p), input = $('input', p); let kb = -1;
+  const draw = () => {
+    const q = input.value.toLowerCase().trim(); const cur = currentModel(); list.innerHTML = ''; let fam = null;
+    const rows = S.models.filter(m => !q || (m.id + ' ' + m.family + ' ' + m.provider).toLowerCase().includes(q));
+    if (!rows.length) list.innerHTML = '<div class="empty-note">No models match.</div>';
+    rows.forEach(m => {
+      if (m.family !== fam) { fam = m.family; list.insertAdjacentHTML('beforeend', `<div class="picker-group">${esc(fam)}</div>`); }
+      const price = perM(m.input_cost_per_token) != null ? `$${perM(m.input_cost_per_token)} / $${perM(m.output_cost_per_token)}` : (m.id === 'scripted' ? 'free · no network' : 'price unknown');
+      const b = document.createElement('button'); b.className = 'picker-item' + (m.unavailable ? ' off' : ''); b.dataset.id = m.id;
+      b.innerHTML = `<span class="nm">${esc(m.label)}</span>${m.id === cur ? ICON.check.replace('class="icon"', 'class="icon ck"') : ''}
+        <span class="sub">${m.unavailable ? 'Not available: ' + esc(m.unavailable) : `${esc(m.provider)} · ${price}${m.id !== m.label ? ' · ' + esc(m.id) : ''}`}</span>`;
+      b.onclick = e => { e.stopPropagation(); closeMenus(); pickModel(m.id); };
+      list.appendChild(b);
+    });
+    kb = -1;
+  };
+  input.oninput = draw;
+  input.onkeydown = e => {
+    const items = [...list.querySelectorAll('.picker-item')]; if (!items.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); kb = (kb + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items.forEach((it, i) => it.classList.toggle('kb', i === kb)); items[kb].scrollIntoView({ block: 'nearest' }); }
+    if (e.key === 'Enter') { e.preventDefault(); (items[kb] || items[0]).click(); }
+  };
+  draw(); document.body.appendChild(p); anchor.setAttribute('aria-expanded', 'true');
+  const r = anchor.getBoundingClientRect(), pr = p.getBoundingClientRect();
+  let top = r.top - pr.height - 6; if (top < 8) top = r.bottom + 6;
+  p.style.top = top + 'px'; p.style.left = Math.max(8, Math.min(r.left, innerWidth - pr.width - 8)) + 'px';
+  input.focus({ preventScroll: true });
+  list.querySelector('.picker-item svg')?.closest('.picker-item')?.scrollIntoView({ block: 'center' });
+}
+async function pickModel(id) {
+  if (S.sid) {
+    const r = await api(`/api/sessions/${S.sid}`, { method: 'PATCH', body: { model: id } });
+    S.chatModel = r.model; toast(`Switched to ${modelLabel(id)}`);
+  } else { S.homeModel = id; }
+  try { localStorage.setItem('errand.model', id); } catch {}
+  syncModelUI();
+}
+document.addEventListener('click', e => { const b = e.target.closest('.model-btn, #model-pill'); if (b) { e.stopPropagation(); openModelPicker(b); } }, true);
+
 /* ===================================================================== sidebar */
 async function loadSessions() {
   const { sessions } = await api('/api/sessions'); S.sessions = sessions; renderSessions();
@@ -485,16 +569,17 @@ function composer(onSend, autofocus) {
   form.onsubmit = e => { e.preventDefault(); const t = ta.value.trim(); if (!t || S.busy) return; ta.value = ''; fit(); onSend(t); };
   node.setText = t => { ta.value = t; fit(); ta.focus(); };
   node.refresh = fit;
+  setTimeout(syncModelUI, 0);
   if (autofocus) setTimeout(() => ta.focus({ preventScroll: true }), 30);
   return node;
 }
 function renderHome() {
-  S.sid = null; S.count = 0; setTitle(); renderSessions();
+  S.sid = null; S.count = 0; S.chatModel = null; setTitle(); renderSessions(); syncModelUI();
   const v = $('#view'); v.innerHTML = '';
   const hero = document.createElement('div'); hero.className = 'hero';
   hero.innerHTML = `<h1><span class="brand-mark">${ICON.mark}</span>${greeting()}, ${esc(S.user?.name || 'there')}</h1>`;
   const c = composer(async text => {
-    const { id } = await api('/api/sessions', { method: 'POST' });
+    const { id } = await api('/api/sessions', { method: 'POST', body: { model: currentModel() } });
     S.pendingFirst = text; location.hash = `#/c/${id}`;
   }, true);
   hero.appendChild(c);
@@ -512,8 +597,9 @@ async function renderChat(sid) {
   const c = composer(text => send(text), true); v.appendChild(c);
   c.insertAdjacentHTML('beforeend', '<div class="disclaimer">Bookings, cancellations and changes only happen after you approve the exact details.</div>');
   S.composer = c;
-  const { messages, count } = await api(`/api/sessions/${sid}/messages`);
+  const { messages, count, model } = await api(`/api/sessions/${sid}/messages`);
   if (S.sid !== sid) return;
+  S.chatModel = model; syncModelUI();
   messages.forEach((m, i) => appendMessage(m, { interactive: i === messages.length - 1 }));
   S.count = count; scrollDown(false);
   if (S.panel) refreshPanel(true);
@@ -530,7 +616,7 @@ function appendMessage(m, { interactive = false, steps = null } = {}) {
     const stepsHtml = steps && steps.length ? `<details class="steps"><summary>${ICON.chev}${steps.length} step${steps.length > 1 ? 's' : ''}</summary><ol>${
       steps.map(s => `<li class="${s.blocked ? 'blocked' : ''}">${esc(s.text)}${s.blocked ? ' — blocked: needs your approval' : ''}</li>`).join('')}</ol></details>` : '';
     el.innerHTML = `<div class="mark">${ICON.mark}</div><div class="body">${tag}${stepsHtml}${renderAssistant(m.content, { interactive })}
-      <div class="msg-actions"><button class="icon-btn" data-act="copy" title="Copy">${ICON.copy}</button></div></div>`;
+      <div class="msg-actions"><button class="icon-btn" data-act="copy" title="Copy">${ICON.copy}</button>${m.model ? `<span class="model-tag">${esc(modelLabel(m.model))}</span>` : ''}</div></div>`;
     el.querySelector('[data-act=copy]').onclick = async e => { await navigator.clipboard.writeText(m.content);
       const b = e.currentTarget; b.innerHTML = ICON.check; setTimeout(() => b.innerHTML = ICON.copy, 1200); };
     el.querySelectorAll('.approval').forEach(card => {
@@ -569,12 +655,12 @@ async function send(text) {
     const fin = await api(`/api/sessions/${sid}/trace?since=${since}`);
     for (const e of fin.events) if (e.event === 'tool_call' && e.origin === 'model') steps.push({ text: stepText(e), blocked: !!e.blocked });
     thinking.remove();
-    if (S.sid === sid) { appendMessage({ role: 'assistant', content: r.reply }, { interactive: true, steps }); S.count = r.count; scrollDown(); }
+    if (S.sid === sid) { appendMessage({ role: 'assistant', content: r.reply, model: r.model }, { interactive: true, steps }); S.count = r.count; scrollDown(); }
   } catch (err) {
     clearInterval(poll); thinking.remove();
     appendMessage({ role: 'assistant', content: `⚠️ Something went wrong reaching the server: ${err.message}` });
   } finally {
-    S.busy = false; S.composer?.refresh(); loadSessions().then(setTitle);
+    S.busy = false; S.composer?.refresh(); loadSessions().then(setTitle); loadModels();
     if (S.panel) refreshPanel(true);
   }
 }
@@ -610,6 +696,7 @@ function evSummary(e) {
     case 'recovery': return `${e.kind} ${e.error || ''} → ${e.action || e.status || ''}`;
     case 'context': return `${e.total_tokens}/${e.budget_tokens} tok · memory ${e.memory_included.length} in, ${Object.keys(e.memory_excluded).length} out · history ${e.history_messages_included}/${e.history_messages_available}`;
     case 'memory': return `${e.action} ${e.key || ''} ${e.reason || ''}`;
+    case 'model_switched': return `→ ${e.model}`;
     case 'run_end': return `${e.outcome}${e.model_calls != null ? ` · ${e.model_calls} model / ${e.tool_calls} tool calls` : ''}`;
     default: return JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k]) => !['ts', 'run_id', 'session_id', 'event'].includes(k)))).slice(0, 120);
   }
@@ -700,10 +787,9 @@ window.addEventListener('hashchange', route);
         if (localStorage.getItem('errand.sb') === '0' && innerWidth > 760) app.classList.add('sidebar-collapsed');
         if (localStorage.getItem('errand.panel') === '1' && innerWidth > 1100) { S.panel = true; app.classList.add('panel-open'); $('#panel-btn').setAttribute('aria-pressed', 'true'); } } catch {}
   $('#open-sidebar').style.visibility = app.classList.contains('sidebar-collapsed') || innerWidth <= 760 ? 'visible' : 'hidden';
-  const b = await api('/api/bootstrap'); S.user = b.user; S.model = b.model;
+  const b = await api('/api/bootstrap'); S.user = b.user; S.defaultModel = b.default_model;
   $('#user-name').textContent = b.user.name; $('#avatar').textContent = b.user.name[0].toUpperCase();
-  $('#model-pill').textContent = b.model === 'litellm' ? (b.model_name || 'litellm') : b.model === 'scripted' ? 'offline model' : b.model;
-  await loadSessions(); route();
+  await Promise.all([loadSessions(), loadModels()]); route();
 })();
 </script>
 </body>

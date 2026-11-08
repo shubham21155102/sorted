@@ -47,6 +47,17 @@ class Limits:
     max_consecutive_tool_errors: int = 4
 
 
+def model_error_kind(err: str) -> str:
+    low = err.lower()
+    if "blocked" in low or "permissiondenied" in low or "permission denied" in low or " 403" in low or "401" in low:
+        return "model_blocked"
+    if "notfound" in low or "not found" in low or "does not exist" in low or "invalid model" in low:
+        return "model_not_found"
+    if "ratelimit" in low or "rate limit" in low or " 429" in low:
+        return "model_rate_limited"
+    return "model_unavailable"
+
+
 class LimitExceeded(Exception):
     def __init__(self, kind: str):
         super().__init__(kind)
@@ -84,6 +95,7 @@ class ErrandAgent:
         self.state = WorkflowState.from_dict(saved) if saved else WorkflowState()
         self.outbox: list[str] = []  # messages produced without a user prompt (recovery, proactive)
         self.manifests: list[dict[str, Any]] = []
+        self.last_model_error: str | None = None
         self._reset_run_counters()
         self._startup()
 
@@ -199,6 +211,14 @@ class ErrandAgent:
         elif d["decision"] == "stale":
             notes.append(f"The user said yes, but proposal {p['id']} was not the last thing they were shown. "
                          f"Do not execute; re-confirm by calling request_approval again.")
+        elif d["decision"] == "no_pending" and p and p["status"] == "approved" and p["action"] in ("book", "cancel", "reschedule"):
+            # Approved earlier but never executed (e.g. the model call failed that turn): carry it out now.
+            call = {"book": f"book(hold_id=\"{p['display'].get('hold_id')}\")",
+                    "cancel": f"cancel(booking_id=\"{p['material'].get('booking_id')}\")",
+                    "reschedule": f"reschedule(booking_id=\"{p['material'].get('booking_id')}\", "
+                                  f"slot=\"{p['material'].get('new_slot')}\")"}[p["action"]]
+            notes.append(f"Proposal {p['id']} ({p['action']}) was APPROVED earlier but not executed yet. "
+                         f"Execute exactly it now: {call}.")
         elif d["decision"] == "no_pending":
             prev = f" Previous proposal {p['id']} is already '{p['status']}'." if p else ""
             notes.append("The user said yes, but no proposal is awaiting approval, so nothing was approved." + prev +
@@ -209,7 +229,8 @@ class ErrandAgent:
             notes.append(f"Proposal {p['id']} is still awaiting approval; this message did NOT approve it. "
                          f"If the user changed a detail, update the request and make a new proposal.")
         reply = self._run_loop([{"role": "user", "content": text}], notes, text)
-        self.store.add_message(self.session_id, "assistant", reply, self.clock.now().isoformat(), self.user_id)
+        self.store.add_message(self.session_id, "assistant", reply, self.clock.now().isoformat(), self.user_id,
+                               model=self.model_name)
         self._emit("run_end", outcome="replied", reply=reply, phase=self.state.phase,
                    model_calls=self._model_calls, tool_calls=self._tool_calls)
         self._save()
@@ -273,7 +294,7 @@ class ErrandAgent:
         trigger = f"[automated event] provider_cancelled booking {b['booking_id']}"
         reply = self._run_loop([{"role": "user", "content": trigger}], notes, trigger)
         self.store.add_message(self.session_id, "assistant", reply, self.clock.now().isoformat(), self.user_id,
-                               kind="proactive")
+                               kind="proactive", model=self.model_name)
         self._save()
         return reply
 
@@ -320,8 +341,9 @@ class ErrandAgent:
                 except SimulatedCrash:
                     raise
                 except Exception as e:
-                    self._emit("model_error", error=f"{type(e).__name__}: {e}")
-                    return self._finalize(None, exit_reason="model_unavailable")
+                    self.last_model_error = f"{type(e).__name__}: {e}"
+                    self._emit("model_error", error=self.last_model_error, model=self.model_name)
+                    return self._finalize(None, exit_reason=model_error_kind(self.last_model_error))
                 self._model_calls += 1
                 in_tok = resp.input_tokens or estimate_tokens(built.request.system + json.dumps(built.request.messages, default=str))
                 out_tok = resp.output_tokens or estimate_tokens(resp.text + json.dumps([c.__dict__ for c in resp.tool_calls]))
@@ -399,6 +421,12 @@ class ErrandAgent:
         if exit_reason:
             reasons = {
                 "model_unavailable": "I couldn't reach the language model just now.",
+                "model_blocked": f"The model `{self.model_name}` isn't available with your access (the model "
+                                 f"gateway blocked it). Pick a different model and send your message again.",
+                "model_not_found": f"The model `{self.model_name}` wasn't found on the model gateway. "
+                                   f"Pick a different model.",
+                "model_rate_limited": f"The model `{self.model_name}` is rate-limited right now. Try again in a "
+                                      f"moment or pick a different model.",
                 "limit:model_calls": "I hit my step limit for this request before finishing.",
                 "limit:tool_calls": "I hit my tool-call limit for this request before finishing.",
                 "limit:wall_clock": "This took longer than my time limit, so I stopped.",
@@ -406,6 +434,11 @@ class ErrandAgent:
                 "limit:context_budget": "This conversation got too large for my working memory.",
             }
             parts.append(reasons.get(exit_reason, f"I had to stop ({exit_reason})."))
+            if exit_reason.startswith("model_") and self.state.active_proposal_id:
+                ap = self.store.get_proposal(self.state.active_proposal_id)
+                if ap and ap["status"] == "approved":
+                    parts.append(f"Your approval of [{ap['id']}] is saved — once a model is available, just say "
+                                 f"\"yes\" and I'll complete it.")
             if not executed_now and not any(e["status"] == "unknown" for e in self._run_executions):
                 parts.append("Nothing was booked, cancelled or changed.")
             if self.state.request.service:
@@ -682,6 +715,11 @@ class ErrandAgent:
             return {"error": "confirm_rejected", "reason": str(e)}
         self._emit("memory", action="confirmed", id=m["id"], key=m["key"])
         return {"confirmed": {k: m[k] for k in ("id", "key", "value", "scope")}}
+
+    def set_model(self, llm: Any, model_name: str) -> None:
+        """Switch the model for subsequent turns (state, approvals and memory are model-independent)."""
+        self.llm, self.model_name = llm, model_name
+        self._emit("model_switched", model=model_name)
 
     # ============================================================ inspection
     def snapshot(self) -> dict[str, Any]:

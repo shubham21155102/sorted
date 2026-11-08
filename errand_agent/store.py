@@ -37,29 +37,41 @@ class Store:
         if path != ":memory:":
             self.db.execute("PRAGMA journal_mode=WAL")  # lets the web server read while the agent writes
         self.db.executescript(SCHEMA)
-        try:  # migration for databases created before message kinds existed
-            self.db.execute("ALTER TABLE messages ADD COLUMN kind TEXT DEFAULT 'chat'")
-        except sqlite3.OperationalError:
-            pass
+        for ddl in ("ALTER TABLE messages ADD COLUMN kind TEXT DEFAULT 'chat'",  # migrations for older DBs
+                    "ALTER TABLE messages ADD COLUMN model TEXT",
+                    "ALTER TABLE sessions ADD COLUMN model TEXT"):
+            try:
+                self.db.execute(ddl)
+            except sqlite3.OperationalError:
+                pass
 
     def close(self) -> None:
         self.db.close()
 
     # ------------------------------------------------------------ messages
     def add_message(self, session_id: str, role: str, content: str, ts: str, user_id: str = "",
-                    kind: str = "chat") -> None:
-        """kind: chat | proactive (sent without a user prompt) | recovery (sent after a restart)."""
-        self.db.execute("INSERT INTO messages(session_id, user_id, role, content, ts, kind) VALUES (?,?,?,?,?,?)",
-                        (session_id, user_id, role, content, ts, kind))
+                    kind: str = "chat", model: str | None = None) -> None:
+        """kind: chat | proactive (sent without a user prompt) | recovery (sent after a restart).
+        model: which model produced an assistant message."""
+        self.db.execute("INSERT INTO messages(session_id, user_id, role, content, ts, kind, model) "
+                        "VALUES (?,?,?,?,?,?,?)", (session_id, user_id, role, content, ts, kind, model))
         title = " ".join(content.split())[:60] if role == "user" else None
         self.db.execute("INSERT OR IGNORE INTO sessions(id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)",
                         (session_id, user_id, title, ts, ts))
         self.db.execute("UPDATE sessions SET updated_at=?, title=COALESCE(title, ?) WHERE id=?", (ts, title, session_id))
 
     # ------------------------------------------------------------ sessions
-    def create_session(self, session_id: str, user_id: str, ts: str, title: str | None = None) -> None:
-        self.db.execute("INSERT OR IGNORE INTO sessions(id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)",
-                        (session_id, user_id, title, ts, ts))
+    def create_session(self, session_id: str, user_id: str, ts: str, title: str | None = None,
+                       model: str | None = None) -> None:
+        self.db.execute("INSERT OR IGNORE INTO sessions(id, user_id, title, created_at, updated_at, model) "
+                        "VALUES (?,?,?,?,?,?)", (session_id, user_id, title, ts, ts, model))
+
+    def session(self, session_id: str) -> dict[str, Any] | None:
+        r = self.db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
+        return dict(r) if r else None
+
+    def set_session_model(self, session_id: str, model: str) -> None:
+        self.db.execute("UPDATE sessions SET model=? WHERE id=?", (model, session_id))
 
     def sessions(self, user_id: str) -> list[dict[str, Any]]:
         rows = self.db.execute("SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS n "
@@ -86,7 +98,7 @@ class Store:
         return n
 
     def messages(self, session_id: str) -> list[dict[str, Any]]:
-        rows = self.db.execute("SELECT role, content, ts, kind FROM messages WHERE session_id=? ORDER BY id",
+        rows = self.db.execute("SELECT role, content, ts, kind, model FROM messages WHERE session_id=? ORDER BY id",
                                (session_id,)).fetchall()
         return [dict(r) for r in rows]
 

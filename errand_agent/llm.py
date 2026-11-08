@@ -124,12 +124,15 @@ class LiteLLM:
     """Any model LiteLLM supports (ERRAND_MODEL=provider/model), or a LiteLLM proxy model alias
     with LITELLM_API_BASE / LITELLM_API_KEY."""
 
-    def __init__(self, model: str | None = None, timeout_s: float = 60.0, completion_fn: Any = None):
+    def __init__(self, model: str | None = None, timeout_s: float = 60.0, completion_fn: Any = None,
+                 pricing: tuple[float | None, float | None] | None = None):
         import litellm  # imported lazily so offline evals don't need it
 
         self.litellm = litellm
         self.completion = completion_fn or litellm.completion
         self.model = model or os.environ.get("ERRAND_MODEL")
+        self.display_model = self.model
+        self.pricing = pricing  # (input, output) USD per token, e.g. from the proxy's model info
         if not self.model:
             raise RuntimeError("Set ERRAND_MODEL to a LiteLLM model id (provider/model) or your proxy's model alias")
         self.timeout_s = timeout_s
@@ -162,12 +165,17 @@ class LiteLLM:
         raw = ([{"type": "text", "text": text}] if text else []) + \
               [{"type": "tool_use", "id": c.id, "name": c.name, "input": c.input} for c in calls]
         usage = getattr(resp, "usage", None)
-        try:
-            cost = float(self.litellm.completion_cost(completion_response=resp))
-        except Exception:
-            cost = None
+        in_tok = getattr(usage, "prompt_tokens", 0) or 0
+        out_tok = getattr(usage, "completion_tokens", 0) or 0
+        cost = None
+        if self.pricing and self.pricing[0] is not None:
+            cost = round(in_tok * self.pricing[0] + out_tok * (self.pricing[1] or 0), 6)
+        else:
+            try:
+                cost = float(self.litellm.completion_cost(completion_response=resp))
+            except Exception:
+                cost = None
         return ModelResponse(text=text, tool_calls=calls,
                              stop_reason="tool_use" if calls else (choice.finish_reason or "end_turn"),
-                             input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
-                             output_tokens=getattr(usage, "completion_tokens", 0) or 0,
-                             model=getattr(resp, "model", None) or self.model, raw_content=raw, cost_usd=cost)
+                             input_tokens=in_tok, output_tokens=out_tok,
+                             model=self.display_model, raw_content=raw, cost_usd=cost)

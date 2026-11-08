@@ -173,3 +173,60 @@ def test_chat_sessions_history():
     store.delete_session("c2")
     assert [(r["id"], r["title"]) for r in store.sessions("u1")] == [("c1", "Kitchen tap")]
     assert store.messages("c2") == []
+
+
+def test_model_catalog_from_proxy(monkeypatch):
+    from errand_agent import models
+    data = {"data": [
+        {"model_group": "gpt-4.1", "mode": "chat", "supports_function_calling": True, "providers": ["azure"],
+         "input_cost_per_token": 7.5e-07, "output_cost_per_token": 4.5e-06},
+        {"model_group": "bedrock/us.anthropic.claude-sonnet-5-5", "mode": "chat", "supports_function_calling": True,
+         "providers": ["bedrock"], "input_cost_per_token": 2.2e-06, "output_cost_per_token": 1.1e-05},
+        {"model_group": "text-embedding-3-large", "mode": "embedding", "supports_function_calling": False},
+        {"model_group": "writer-vision", "mode": "chat", "supports_function_calling": False},
+    ]}
+    monkeypatch.setenv("LITELLM_API_BASE", "http://proxy")
+    monkeypatch.setenv("ERRAND_MODEL", "gpt-4.1")
+    monkeypatch.delenv("ERRAND_MODELS", raising=False)
+    monkeypatch.setattr(models, "_get", lambda url, key, timeout=10: data)
+    cat = models.Catalog()
+    ids = [m["id"] for m in cat.models()]
+    assert ids == ["bedrock/us.anthropic.claude-sonnet-5-5", "gpt-4.1", "scripted"]  # tool-capable chat only
+    claude = cat.get("bedrock/us.anthropic.claude-sonnet-5-5")
+    assert claude["label"] == "claude-sonnet-5-5" and claude["family"] == "Anthropic"
+    cat.mark_blocked("gpt-4.1", "blocked for this key")
+    assert [m["unavailable"] for m in cat.with_status(cat.models())] == [None, "blocked for this key", None]
+    monkeypatch.setenv("ERRAND_MODELS", "gpt-4.1, custom-alias")
+    assert [m["id"] for m in cat.models(refresh=True)] == ["gpt-4.1", "custom-alias", "scripted"]
+
+
+def test_model_error_classification():
+    from errand_agent.agent import model_error_kind
+    assert model_error_kind("APIError: litellm.PermissionDeniedError: Model is blocked") == "model_blocked"
+    assert model_error_kind("NotFoundError: model does not exist") == "model_not_found"
+    assert model_error_kind("RateLimitError: 429 too many requests") == "model_rate_limited"
+    assert model_error_kind("ConnectionError: reset") == "model_unavailable"
+
+
+def test_switching_model_mid_chat_keeps_approval():
+    """Approve while one model fails; switch model; a later 'yes' completes the approved booking once."""
+    from errand_agent.agent import ErrandAgent
+    from errand_agent.scripted_model import ScriptedModel
+
+    class Blocked:
+        model = "blocked-model"
+        def complete(self, req):
+            raise RuntimeError("PermissionDeniedError: Model is blocked")
+
+    clock = FakeClock()
+    world = MockWorld(ScenarioConfig(book_outcomes=["success"]), clock)
+    agent = ErrandAgent(llm=ScriptedModel(), world=world, store=Store(), clock=clock, model_name="scripted")
+    agent.handle_user_message("Find a plumber in Indiranagar this week, mornings, under 1500")
+    agent.set_model(Blocked(), "blocked-model")
+    r = agent.handle_user_message("yes")
+    assert "isn't available with your access" in r and "approval of" in r and not world.side_effects()
+    agent.set_model(ScriptedModel(), "scripted")
+    r = agent.handle_user_message("yes")
+    assert "✅ Verified" in r and len(world.side_effects()) == 1
+    assert [m["model"] for m in agent.store.messages("s1") if m["role"] == "assistant"] == \
+        ["scripted", "blocked-model", "scripted"]

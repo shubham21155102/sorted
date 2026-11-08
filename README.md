@@ -43,7 +43,12 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 
 ## Voice agent
 
-`errand_agent/voice.py` is a LiveKit agent worker. Speech-to-text (`deepgram/nova-3`), text-to-speech (`cartesia/sonic-3`) and voice-activity detection run on **LiveKit Inference**, using the LiveKit Cloud credentials in `secrets/livekit.env` (gitignored).
+`errand_agent/voice.py` is a LiveKit agent worker. It handles three kinds of call: **browser calls**, **inbound phone calls** (you ring Errand) and **outbound phone calls** (Errand rings you).
+
+- **Speech:** when `secrets/sarvam.env` has a `SARVAM_API_KEY`, calls use **Sarvam**: `saaras:v4` speech-to-text and `bulbul:v3` text-to-speech, voice *kavya*. Sarvam handles Indian English, Hindi and Hinglish. Without a Sarvam key, calls use LiveKit Inference (`deepgram/nova-3` and `cartesia/sonic-3`).
+- **Voice activity:** Silero, via LiveKit Inference.
+- **Credentials:** LiveKit credentials are in `secrets/livekit.env`. The whole `secrets/` folder is gitignored.
+- **Hindi approvals:** the code approval check understands Hindi and Hinglish confirmations ("haan", "theek hai, book kar do") and refusals ("nahi", "mat karo"). A reply like "haan lekin 11 baje" is treated as a change, not an approval.
 
 - **One brain:** the voice worker has no logic of its own. Each finished utterance is posted to the web server's chat API for the call's chat (`channel: "voice"`). Calls get the same agent, model, approvals, idempotent booking, memory, limits and trace as typed chat.
 - **History:** every spoken turn is saved in that chat, tagged *Said on a call* / *Spoken reply*.
@@ -52,6 +57,29 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 - **Turn handling:** preemptive generation is disabled on purpose. A reply here can search and hold slots, so it must never run on a half-finished sentence. A 1-second pause marks the end of the caller's turn.
 - **Slow turns and proactive messages:** if the agent takes more than 2.5 seconds, it says "One moment." Proactive messages that arrive during a call, such as a provider cancellation, are spoken out.
 - **Connecting a call:** the browser gets a token from `POST /api/voice/token`. That joins a fresh room and dispatches the `errand-voice` agent, with the chat's session id in the dispatch metadata.
+
+### Phone calls (inbound and outbound)
+
+- **Inbound:** you ring the Errand number. A LiveKit dispatch rule puts the call in its own room and dispatches the agent. **Only your registered number is accepted** (user menu → *Phone number*); any other caller hears "this line only serves registered Errand users" and is hung up on. Each accepted call becomes a new chat, *Phone call · <date time>*.
+- **Outbound:** Errand rings you. Click the phone icon in the top bar, or accept the offer above the message box, which appears when Errand still needs details: *"Quicker to talk it through? 📞 Call my phone · 🎙 Talk here"*.
+  - The call continues **the same chat**, and opens with a briefing built by code from the chat's state. If an approval is pending it reads it out: "…To confirm: book Volt Bros on Monday 9 November at 11 AM for 820 rupees. Say yes to confirm."
+  - If you don't answer, the chat says so.
+- **History:** every call writes markers into its chat ("📞 Calling +91•••210…", "Phone call connected", "📞 Phone call ended · 1m 15s"). Spoken turns are tagged *Said on the phone* and *Spoken on the phone*.
+- **Setup:** you need a phone number from a SIP provider (Twilio, Plivo, Exotel, Telnyx, …) with its trunk pointing at your LiveKit project. Then:
+  ```bash
+  python -m errand_agent.telephony setup --number +91XXXXXXXXXX --sip-address <provider sip host> \
+      --sip-username <user> --sip-password <pass>      # creates trunks + dispatch rule, writes secrets/telephony.env
+  python -m errand_agent.telephony status
+  python -m errand_agent.telephony call +91XXXXXXXXXX   # test outbound
+  ```
+  Caller ID can be spoofed, so for production also add a spoken PIN on inbound calls.
+
+**Tested so far.** The phone flows were tested against LiveKit Cloud with a simulated SIP caller: a participant carrying `sip.phoneNumber`. Results:
+- the unregistered number was rejected and hung up on;
+- the registered number was greeted by name, given a new chat, with start/end markers written;
+- the outbound call briefed correctly, and an invalid trunk produced a clean "Couldn't reach" note in the chat.
+
+A real PSTN call still needs a number and trunk.
 
 Run it with `python -m errand_agent.server --voice` (one command; the worker runs as a child process), or separately with `python -m errand_agent.voice dev` next to the server (set `ERRAND_SERVER_URL` if the server isn't on port 8765).
 
@@ -72,7 +100,8 @@ Run it with `python -m errand_agent.server --voice` (one command; the worker run
 | `tracing.py` | JSONL trace, PII redaction, cost estimates. |
 | `llm.py` | LiteLLM adapter (any provider or a LiteLLM proxy), record/replay. |
 | `models.py` | Model catalog for the picker (proxy `/model_group/info`, prices, blocked models). |
-| `voice.py`, `voice_text.py` | LiveKit voice worker (STT → Errand server → TTS) and speech-friendly text. |
+| `voice.py`, `voice_text.py` | LiveKit voice worker: browser, inbound and outbound phone calls (STT → Errand server → TTS), speech-friendly text. |
+| `telephony.py` | Creates the LiveKit SIP trunks and dispatch rule for a phone number, plus status, test-call and teardown commands. |
 | `server.py`, `static/index.html` | Web app: chats, model picker, voice calls, trace/memory/bookings panel. |
 | `scripted_model.py`, `nlu.py` | Offline deterministic model for evals, with switches to simulate a *misbehaving* model. |
 | `evals/` | Harness (simulated users, restarts, crashes, clock control), 35 scenarios, global invariants, table generator. |

@@ -27,7 +27,8 @@ def load_dotenv(path: str = ".env") -> None:
 
 
 load_dotenv()
-load_dotenv(os.path.join("secrets", "livekit.env"))
+for _secret in ("livekit.env", "sarvam.env", "telephony.env"):  # gitignored credential files
+    load_dotenv(os.path.join("secrets", _secret))
 
 
 def make_llm(kind: str) -> Any:

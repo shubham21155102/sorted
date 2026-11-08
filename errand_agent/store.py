@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS memories (
   confirmed INTEGER, status TEXT, evidence TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS processed_events (
   event_id TEXT PRIMARY KEY, user_id TEXT, decision TEXT, at TEXT);
+CREATE TABLE IF NOT EXISTS profile (
+  user_id TEXT PRIMARY KEY, phone TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, user_id TEXT, title TEXT, created_at TEXT, updated_at TEXT);
 """
@@ -185,6 +187,15 @@ class Store:
             d["confirmed"] = bool(d["confirmed"])
             out.append(d)
         return out
+
+    # ------------------------------------------------------------- profile
+    def profile(self, user_id: str) -> dict[str, Any]:
+        r = self.db.execute("SELECT * FROM profile WHERE user_id=?", (user_id,)).fetchone()
+        return dict(r) if r else {"user_id": user_id, "phone": None}
+
+    def set_phone(self, user_id: str, phone: str | None, ts: str) -> None:
+        self.db.execute("INSERT INTO profile(user_id, phone, updated_at) VALUES (?,?,?) ON CONFLICT(user_id) "
+                        "DO UPDATE SET phone=excluded.phone, updated_at=excluded.updated_at", (user_id, phone, ts))
 
     # -------------------------------------------------------------- events
     def event_processed(self, event_id: str) -> bool:

@@ -137,6 +137,12 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/api/bootstrap$", "bootstrap"),
     ("GET", r"^/api/models$", "models"),
     ("GET", r"^/api/voice/config$", "voice_config"),
+    ("GET", r"^/api/profile$", "get_profile"),
+    ("PUT", r"^/api/profile$", "put_profile"),
+    ("POST", r"^/api/sessions/(?P<sid>[\w-]+)/call_me$", "call_me"),
+    ("GET", r"^/api/sessions/(?P<sid>[\w-]+)/brief$", "brief"),
+    ("POST", r"^/api/sessions/(?P<sid>[\w-]+)/call_event$", "call_event"),
+    ("POST", r"^/api/phone/inbound$", "phone_inbound"),
     ("POST", r"^/api/voice/token$", "voice_token"),
     ("GET", r"^/api/sessions$", "list_sessions"),
     ("POST", r"^/api/sessions$", "create_session"),
@@ -199,6 +205,9 @@ def make_handler(app: App):
         def do_DELETE(self) -> None:
             self._route("DELETE")
 
+        def do_PUT(self) -> None:
+            self._route("PUT")
+
         # -------------------------------------------------------- handlers
         def index(self) -> None:
             with open(STATIC, "rb") as f:
@@ -215,7 +224,74 @@ def make_handler(app: App):
 
         def voice_config(self) -> None:
             ok = all(os.environ.get(k) for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"))
-            self._json({"enabled": ok, "url": os.environ.get("LIVEKIT_URL") if ok else None})
+            self._json({"enabled": ok, "url": os.environ.get("LIVEKIT_URL") if ok else None,
+                        "provider": "sarvam" if os.environ.get("SARVAM_API_KEY") else "livekit-inference",
+                        "phone": {"outbound": ok and bool(os.environ.get("ERRAND_SIP_OUTBOUND_TRUNK_ID")),
+                                  "inbound_number": os.environ.get("ERRAND_INBOUND_NUMBER") or None},
+                        "user_phone": app.reader.profile(USER_ID).get("phone")})
+
+        def get_profile(self) -> None:
+            self._json({"name": USER_NAME, **app.reader.profile(USER_ID)})
+
+        def put_profile(self) -> None:
+            phone = (self._body().get("phone") or "").strip().replace(" ", "").replace("-", "")
+            if phone and not re.match(r"^\+[1-9]\d{7,14}$", phone):
+                return self._json({"error": "Use international format, e.g. +919876543210"}, 400)
+            with app.lock:
+                app.store.set_phone(USER_ID, phone or None, now())
+            self._json({"phone": phone or None})
+
+        def call_me(self, sid: str) -> None:
+            """Outbound phone call: dispatch the voice agent to a fresh room; it dials the user's phone."""
+            from livekit import api
+            phone = (self._body().get("phone") or app.reader.profile(USER_ID).get("phone") or "").strip()
+            if not phone:
+                return self._json({"error": "no_phone", "message": "Add your phone number first."}, 400)
+            if not os.environ.get("ERRAND_SIP_OUTBOUND_TRUNK_ID"):
+                return self._json({"error": "phone_not_configured",
+                                   "message": "Phone calls aren't set up yet (run python -m errand_agent.telephony setup)."}, 400)
+            with app.lock:
+                app.store.create_session(sid, USER_ID, now(), model=app.default_model())
+            room = f"errand-{sid}-out-{uuid.uuid4().hex[:6]}"
+
+            async def dispatch() -> Any:
+                lk = api.LiveKitAPI(os.environ["LIVEKIT_URL"].replace("wss://", "https://"),
+                                    os.environ["LIVEKIT_API_KEY"], os.environ["LIVEKIT_API_SECRET"])
+                try:
+                    return await lk.agent_dispatch.create_dispatch(api.CreateAgentDispatchRequest(
+                        agent_name="errand-voice", room=room,
+                        metadata=json.dumps({"session_id": sid, "mode": "outbound_phone", "phone": phone})))
+                finally:
+                    await lk.aclose()
+            import asyncio
+            d = asyncio.run(dispatch())
+            self._json({"status": "calling", "room": room, "dispatch_id": d.id, "phone": phone})
+
+        def brief(self, sid: str) -> None:
+            with app.lock:
+                text = app.agent(sid).call_brief()
+            self._json({"text": text, "user_name": USER_NAME})
+
+        def call_event(self, sid: str) -> None:
+            """Call start/end markers in the chat history (written by the voice worker)."""
+            text = (self._body().get("text") or "").strip()[:300]
+            if text:
+                with app.lock:
+                    app.store.add_message(sid, "assistant", text, now(), USER_ID, kind="call")
+            self._json({"ok": True})
+
+        def phone_inbound(self) -> None:
+            """An inbound phone call arrived: accept only the user's registered number, open a chat for it."""
+            b = self._body()
+            caller = (b.get("from") or "").strip()
+            mine = app.reader.profile(USER_ID).get("phone")
+            if not mine or caller.replace(" ", "") != mine:
+                return self._json({"allowed": False})
+            sid = new_session_id()
+            with app.lock:
+                app.store.create_session(sid, USER_ID, now(), title=f"Phone call · {datetime.now():%d %b %H:%M}",
+                                         model=app.default_model())
+            self._json({"allowed": True, "session_id": sid, "user_name": USER_NAME})
 
         def voice_token(self) -> None:
             """Token for the browser to join a fresh room; it dispatches the voice worker for this chat."""
@@ -254,12 +330,20 @@ def make_handler(app: App):
         def messages(self, sid: str) -> None:
             msgs = app.reader.messages(sid)
             since = int(self.q.get("since", 0))
-            self._json({"messages": msgs[since:], "count": len(msgs), "model": app.session_model(sid)})
+            wf = app.reader.load_workflow(sid)
+            phase, missing = None, []
+            if wf:
+                from .workflow import WorkflowState
+                state = WorkflowState.from_dict(wf)
+                phase = state.phase
+                missing = state.request.missing() if (state.request.intent or state.request.service) else []
+            self._json({"messages": msgs[since:], "count": len(msgs), "model": app.session_model(sid),
+                        "phase": phase, "missing": missing})
 
         def chat(self, sid: str) -> None:
             body = self._body()
             text = (body.get("text") or "").strip()
-            channel = "voice" if body.get("channel") == "voice" else "chat"
+            channel = body.get("channel") if body.get("channel") in ("voice", "phone") else "chat"
             if not text:
                 return self._json({"error": "empty message"}, 400)
             with app.lock:

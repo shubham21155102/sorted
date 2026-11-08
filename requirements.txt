@@ -1,6 +1,7 @@
 litellm>=1.70
-mcp>=1.0             # litellm imports its MCP handler on tool-calling requests
-tenacity>=8          # litellm's retry path (num_retries)
-livekit-agents>=1.8  # voice agent (LiveKit Inference: STT, TTS, VAD)
-livekit-api>=1.2     # access tokens + agent dispatch
+mcp>=1.0                     # litellm imports its MCP handler on tool-calling requests
+tenacity>=8                  # litellm's retry path (num_retries)
+livekit-agents>=1.8          # voice agent (LiveKit Inference: STT, TTS, VAD)
+livekit-plugins-sarvam>=1.8  # Sarvam speech (Indian English, Hindi, Hinglish)
+livekit-api>=1.2             # tokens, agent dispatch, SIP trunks
 pytest>=8

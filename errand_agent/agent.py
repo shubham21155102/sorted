@@ -49,6 +49,8 @@ class Limits:
 
 def model_error_kind(err: str) -> str:
     low = err.lower()
+    if "budget has been exceeded" in low or "budget exceeded" in low or "max budget" in low:
+        return "model_budget"
     if "blocked" in low or "permissiondenied" in low or "permission denied" in low or " 403" in low or "401" in low:
         return "model_blocked"
     if "notfound" in low or "not found" in low or "does not exist" in low or "invalid model" in low:
@@ -190,7 +192,7 @@ class ErrandAgent:
 
     # ============================================================ user turn
     def handle_user_message(self, text: str, channel: str = "chat") -> str:
-        """channel: "chat" (typed) or "voice" (transcribed speech; the reply will be spoken)."""
+        """channel: "chat" (typed), "voice" (browser call) or "phone" (phone call); the last two are spoken."""
         self._reset_run_counters()
         self._current_user_text = text
         self.tracer.start_run("user_turn", user_text=text, phase=self.state.phase, channel=channel)
@@ -230,10 +232,11 @@ class ErrandAgent:
         elif p is not None:
             notes.append(f"Proposal {p['id']} is still awaiting approval; this message did NOT approve it. "
                          f"If the user changed a detail, update the request and make a new proposal.")
-        if channel == "voice":
-            notes.append("The user is on a VOICE CALL and your reply will be spoken aloud: answer in 1-3 short "
+        if channel in ("voice", "phone"):
+            notes.append(f"The user is on a {'PHONE' if channel == 'phone' else 'VOICE'} CALL and your reply will be spoken aloud: answer in 1-3 short "
                          "conversational sentences, no markdown, lists, ids or emojis. Mention at most two options. "
                          "The user's words were transcribed from speech, so allow for small transcription errors. "
+                         "If they speak Hindi or Hinglish, understand it normally and reply in simple English. "
                          "Never mention prompts, cards or buttons: if you request approval, the app reads the exact "
                          "details aloud right after your reply and the user just says yes or no.")
         reply = self._run_loop([{"role": "user", "content": text}], notes, text)
@@ -433,6 +436,8 @@ class ErrandAgent:
                                  f"gateway blocked it). Pick a different model and send your message again.",
                 "model_not_found": f"The model `{self.model_name}` wasn't found on the model gateway. "
                                    f"Pick a different model.",
+                "model_budget": "The model gateway's spending limit for this API key has been reached, so I "
+                                "can't think right now. Raise the key's budget or switch to another key.",
                 "model_rate_limited": f"The model `{self.model_name}` is rate-limited right now. Try again in a "
                                       f"moment or pick a different model.",
                 "limit:model_calls": "I hit my step limit for this request before finishing.",
@@ -445,13 +450,14 @@ class ErrandAgent:
             if exit_reason.startswith("model_") and self.state.active_proposal_id:
                 ap = self.store.get_proposal(self.state.active_proposal_id)
                 if ap and ap["status"] == "approved":
-                    parts.append(f"Your approval of [{ap['id']}] is saved — once a model is available, just say "
+                    parts.append(f"Your approval is saved [{ap['id']}] — once a model is available, just say "
                                  f"\"yes\" and I'll complete it.")
             if not executed_now and not any(e["status"] == "unknown" for e in self._run_executions):
                 parts.append("Nothing was booked, cancelled or changed.")
             if self.state.request.service:
-                parts.append(f"Saved progress: {self.state.request.service} in {self.state.request.area or '?'}, "
-                             f"phase '{self.state.phase}'. Send another message to continue.")
+                where = f" in {self.state.request.area.title()}" if self.state.request.area else ""
+                parts.append(f"Saved progress: {self.state.request.service.replace('_', ' ')}{where}, "
+                             f"step '{self.state.phase.replace('_', ' ')}'. Send another message to continue.")
         elif text:
             parts.append(text.strip())
         parts.extend(self._status_lines())
@@ -723,6 +729,24 @@ class ErrandAgent:
             return {"error": "confirm_rejected", "reason": str(e)}
         self._emit("memory", action="confirmed", id=m["id"], key=m["key"])
         return {"confirmed": {k: m[k] for k in ("id", "key", "value", "scope")}}
+
+    def call_brief(self) -> str:
+        """One or two sentences to open an outbound call with: where this chat's errand stands."""
+        st, req = self.state, self.state.request
+        if st.active_proposal_id:
+            p = self.store.get_proposal(st.active_proposal_id)
+            if p and p["status"] in ("pending", "approved"):
+                return "I'm calling about your request. " + self.gate.render(p)
+        what = (req.service or "your errand").replace("_", " ")
+        missing = req.missing() if (req.intent or req.service) else []
+        if missing:
+            return (f"I'm calling about the {what} you asked for. To find you options I just need "
+                    + " and ".join(missing) + ".")
+        if st.phase == "completed" and st.last_outcome:
+            return f"I'm calling about your {what}. It's all done; is there anything else you need?"
+        if req.service:
+            return f"I'm calling about the {what} you asked for. Shall I go ahead and look for options?"
+        return "You asked me to call. What can I sort out for you?"
 
     def set_model(self, llm: Any, model_name: str) -> None:
         """Switch the model for subsequent turns (state, approvals and memory are model-independent)."""

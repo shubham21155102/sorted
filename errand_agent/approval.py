@@ -24,13 +24,17 @@ from .clock import Clock
 from .store import Store
 
 STRONG_AFFIRM = {"yes", "yeah", "yep", "yup", "ok", "okay", "sure", "confirm", "confirmed", "approve",
-                 "approved", "proceed", "go"}
+                 "approved", "proceed", "go",
+                 # Hindi / Hinglish (romanised, as speech-to-text and typing produce it)
+                 "haan", "haa", "han", "haanji", "hanji", "theek", "thik", "thick", "bilkul", "chalega"}
 FILLER = {"ahead", "book", "it", "do", "please", "that", "sounds", "good", "great", "thanks", "thank", "you",
           "cancel", "reschedule", "move", "the", "booking", "this", "one", "perfect", "fine", "lets", "let's",
-          "s", "go", "and", "is", "correct", "right"}
+          "s", "go", "and", "is", "correct", "right",
+          "ji", "hai", "kar", "karo", "kardo", "karna", "dijiye", "kijiye", "do", "de", "dena", "shukriya", "dhanyavaad"}
 NEGATION = {"no", "nope", "nah", "not", "dont", "don't", "never", "stop", "wait", "hold", "change",
-            "instead", "but", "actually", "different", "other", "later", "cheaper", "rather"}
-REJECT_START = {"no", "nope", "nah", "dont", "don't", "stop", "never"}
+            "instead", "but", "actually", "different", "other", "later", "cheaper", "rather",
+            "nahi", "nahin", "mat", "ruko", "rukiye", "lekin", "magar", "badlo", "baad"}
+REJECT_START = {"no", "nope", "nah", "dont", "don't", "stop", "never", "nahi", "nahin", "mat", "na"}
 
 MATERIAL_FIELDS = {
     "book": ("provider_id", "slot", "price"),

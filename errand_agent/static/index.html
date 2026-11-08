@@ -258,6 +258,24 @@ svg { display: block; }
 .msg.user { flex-direction: column; align-items: flex-end; }
 .msg.user .tag { margin: 0 4px 4px 0; }
 
+/* calls: markers, offer, dialog */
+.call-marker { display: flex; justify-content: center; margin: 4px 0 22px; animation: rise .2s ease-out; }
+.call-marker span { font-size: 12.5px; color: var(--muted); background: var(--hover); border-radius: 999px; padding: 4px 12px; }
+.call-offer { max-width: 760px; margin: 0 auto 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px 10px 14px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--raised); font-size: 14px; animation: rise .2s ease-out; }
+.call-offer .txt { flex: 1; min-width: 180px; color: var(--ink-2); }
+.call-offer .btn { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; font-size: 13.5px; }
+.call-offer .btn svg { width: 15px; height: 15px; }
+.call-offer .x { width: 28px; height: 28px; }
+.modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 70; display: grid; place-items: center; padding: 16px; animation: rise .12s ease-out; }
+.modal { width: min(420px, 100%); background: var(--raised); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: var(--shadow-lg); padding: 20px; }
+.modal h3 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+.modal p { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
+.modal input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); outline: none; font-size: 15px; }
+.modal input:focus { border-color: var(--muted); }
+.modal .err { color: var(--bad); font-size: 13px; min-height: 18px; margin-top: 6px; }
+.modal .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+
 /* model picker */
 .model-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; font-size: 13px; color: var(--ink-2); max-width: 260px; }
 .model-btn:hover { background: var(--hover); color: var(--ink); }
@@ -329,6 +347,7 @@ button.model-pill:hover { color: var(--ink); border-color: var(--line-2); }
       <button class="icon-btn" id="open-sidebar" title="Open sidebar"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
       <div class="title" id="chat-title"></div>
       <button class="model-pill" id="model-pill" title="Change model"></button>
+      <button class="icon-btn" id="phone-btn" title="Call my phone" hidden><svg class="icon" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2"/></svg></button>
       <button class="icon-btn" id="demo-btn" title="Demo controls"><svg class="icon" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
       <button class="icon-btn" id="panel-btn" title="Trace, memory and bookings" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg></button>
     </div>
@@ -391,6 +410,7 @@ const ICON = {
   cal: '<svg class="icon" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
   clock: '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   tag: '<svg class="icon" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg>',
+  phone: '<svg class="icon" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2"/></svg>',
   mic: '<svg class="icon" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
   micOff: '<svg class="icon" viewBox="0 0 24 24"><path d="M15 9.5V6a3 3 0 00-5.8-1M9 9v2a3 3 0 004.6 2.5M5 11a7 7 0 0011.5 5.4M19 11a7 7 0 01-.6 2.8M12 18v3M3 3l18 18"/></svg>',
   hang: '<svg class="icon" viewBox="0 0 24 24"><path d="M3 15c5-5 13-5 18 0l-2.5 2.5-3.5-2v-3a10 10 0 00-6 0v3l-3.5 2z"/></svg>',
@@ -637,9 +657,9 @@ async function renderChat(sid) {
   const c = composer(text => send(text), true); v.appendChild(c);
   c.insertAdjacentHTML('beforeend', '<div class="disclaimer">Bookings, cancellations and changes only happen after you approve the exact details.</div>');
   S.composer = c;
-  const { messages, count, model } = await api(`/api/sessions/${sid}/messages`);
+  const { messages, count, model, phase, missing } = await api(`/api/sessions/${sid}/messages`);
   if (S.sid !== sid) return;
-  S.chatModel = model; syncModelUI();
+  S.chatModel = model; syncModelUI(); setTimeout(() => maybeOffer({ phase, missing }), 0);
   messages.forEach((m, i) => appendMessage(m, { interactive: i === messages.length - 1 }));
   S.count = count; scrollDown(false);
   if (S.panel) refreshPanel(true);
@@ -648,13 +668,15 @@ async function renderChat(sid) {
 }
 function appendMessage(m, { interactive = false, steps = null } = {}) {
   const thread = $('#thread'); if (!thread) return;
-  thread.querySelectorAll('.approval:not(.done)').forEach(a => a.classList.add('done'));
+  if (m.kind !== 'call') thread.querySelectorAll('.approval:not(.done)').forEach(a => a.classList.add('done'));
+  if (m.kind === 'call') { const c = document.createElement('div'); c.className = 'call-marker'; c.innerHTML = `<span>${esc(m.content)}</span>`; thread.appendChild(c); return c; }
   const el = document.createElement('div'); el.className = `msg ${m.role === 'user' ? 'user' : 'assistant'}`;
-  if (m.role === 'user') { el.innerHTML = `${m.kind === 'voice' ? `<div class="tag voice">${ICON.mic}Said on a call</div>` : ''}<div class="bubble">${esc(m.content)}</div>`; }
+  if (m.role === 'user') { el.innerHTML = `${m.kind === 'voice' ? `<div class="tag voice">${ICON.mic}Said on a call</div>` : m.kind === 'phone' ? `<div class="tag voice">${ICON.phone}Said on the phone</div>` : ''}<div class="bubble">${esc(m.content)}</div>`; }
   else {
     const tag = m.kind === 'proactive' ? `<div class="tag proactive">${ICON.bell}Sent without a message from you</div>`
               : m.kind === 'recovery' ? `<div class="tag recovery">${ICON.refresh}After a restart</div>`
-              : m.kind === 'voice' ? `<div class="tag voice">${ICON.mic}Spoken reply</div>` : '';
+              : m.kind === 'voice' ? `<div class="tag voice">${ICON.mic}Spoken reply</div>`
+              : m.kind === 'phone' ? `<div class="tag voice">${ICON.phone}Spoken on the phone</div>` : '';
     const stepsHtml = steps && steps.length ? `<details class="steps"><summary>${ICON.chev}${steps.length} step${steps.length > 1 ? 's' : ''}</summary><ol>${
       steps.map(s => `<li class="${s.blocked ? 'blocked' : ''}">${esc(s.text)}${s.blocked ? ' — blocked: needs your approval' : ''}</li>`).join('')}</ol></details>` : '';
     el.innerHTML = `<div class="mark">${ICON.mark}</div><div class="body">${tag}${stepsHtml}${renderAssistant(m.content, { interactive })}
@@ -702,7 +724,7 @@ async function send(text) {
     clearInterval(poll); thinking.remove();
     appendMessage({ role: 'assistant', content: `⚠️ Something went wrong reaching the server: ${err.message}` });
   } finally {
-    S.busy = false; S.composer?.refresh(); loadSessions().then(setTitle); loadModels();
+    S.busy = false; S.composer?.refresh(); loadSessions().then(setTitle); loadModels(); pollMessages();
     if (S.panel) refreshPanel(true);
   }
 }
@@ -710,8 +732,9 @@ async function send(text) {
 async function pollMessages() {
   if (!S.sid || S.busy) return;
   try {
-    const sid = S.sid; const { messages, count } = await api(`/api/sessions/${sid}/messages?since=${S.count}`);
+    const sid = S.sid; const { messages, count, phase, missing } = await api(`/api/sessions/${sid}/messages?since=${S.count}`);
     if (sid !== S.sid || S.busy) return;
+    maybeOffer({ phase, missing });
     if (messages.length) { messages.forEach((m, i) => appendMessage(m, { interactive: i === messages.length - 1 })); S.count = count; scrollDown(); loadSessions().then(setTitle); }
   } catch {}
 }
@@ -805,6 +828,7 @@ function setTheme(t) {
 }
 $('#user-btn').onclick = e => { e.stopPropagation(); openMenu(e.currentTarget, [
   { text: 'Memory', icon: ICON.brain, run: () => { S.tab = 'memory'; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.tab === 'memory')); setPanel(true); } },
+  { text: 'Phone number', icon: ICON.phone, run: () => phoneDialog() },
   { text: 'Bookings', icon: ICON.cal, run: () => { S.tab = 'bookings'; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.tab === 'bookings')); setPanel(true); } },
   '-', { label: 'Appearance' },
   { text: 'Light', icon: ICON.sun, run: () => setTheme('light') }, { text: 'Dark', icon: ICON.moon, run: () => setTheme('dark') },
@@ -831,7 +855,7 @@ async function startCall() {
   const bar = document.createElement('div'); bar.className = 'callbar'; bar.dataset.state = 'connecting';
   bar.innerHTML = `<div class="orb"></div><div class="call-info"><div class="call-state">Connecting…</div><div class="call-caption">Allow microphone access to start talking.</div></div>
     <div class="call-actions"><button class="round" data-act="mute" title="Mute">${ICON.mic}</button><button class="round end" data-act="end" title="End call">${ICON.hang}</button></div>`;
-  const form = S.composer.querySelector('form'); form.style.display = 'none'; S.composer.prepend(bar);
+  hideOffer(false); const form = S.composer.querySelector('form'); form.style.display = 'none'; S.composer.prepend(bar);
   const call = S.call = { sid, bar, room: null, audio: [], muted: false };
   const setState = st => { bar.dataset.state = st; bar.querySelector('.call-state').textContent = STATE_LABEL[st] || st; };
   const caption = (who, text) => { bar.querySelector('.call-caption').innerHTML = `<b>${who}:</b> ${esc(text)}`; };
@@ -873,6 +897,56 @@ function endCall(silent = false) {
 }
 window.addEventListener('beforeunload', () => { try { S.call?.room?.disconnect(); } catch {} });
 
+/* ======================================================================== phone */
+function phoneDialog(after) {
+  const back = document.createElement('div'); back.className = 'modal-back';
+  back.innerHTML = `<div class="modal" role="dialog" aria-label="Your phone number"><h3>Your phone number</h3>
+    <p>Errand calls this number when you ask, and only this number can call Errand's line.</p>
+    <input inputmode="tel" placeholder="+91 98765 43210" value="${esc(S.voice?.user_phone || '')}"><div class="err"></div>
+    <div class="row"><button class="btn" data-a="cancel">Cancel</button><button class="btn primary" data-a="save">Save</button></div></div>`;
+  document.body.appendChild(back);
+  const input = $('input', back), err = $('.err', back);
+  const close = () => back.remove();
+  back.onclick = e => { if (e.target === back) close(); };
+  $('[data-a=cancel]', back).onclick = close;
+  const save = async () => {
+    try { const r = await api('/api/profile', { method: 'PUT', body: { phone: input.value } });
+      S.voice.user_phone = r.phone; close(); toast(r.phone ? 'Phone number saved' : 'Phone number removed'); after?.(); }
+    catch (e) { err.textContent = e.message; }
+  };
+  $('[data-a=save]', back).onclick = save;
+  input.onkeydown = e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') close(); };
+  setTimeout(() => input.focus(), 20);
+}
+async function callMyPhone() {
+  if (!S.voice?.user_phone) return phoneDialog(callMyPhone);
+  if (!S.voice?.phone?.outbound) { toast('Phone calls need a phone number set up in LiveKit (see README → Phone calls). Using a browser call instead.'); return startCall(); }
+  let sid = S.sid;
+  if (!sid) { const r = await api('/api/sessions', { method: 'POST', body: { model: currentModel() } }); sid = r.id; location.hash = `#/c/${sid}`; }
+  try { const r = await api(`/api/sessions/${sid}/call_me`, { method: 'POST', body: {} });
+        toast(`Calling ${r.phone.slice(0, 3)}•••${r.phone.slice(-3)} — pick up to continue this chat`); hideOffer(true); }
+  catch (e) { toast(e.message.includes('no_phone') ? 'Add your phone number first' : `Couldn't place the call: ${e.message}`); }
+}
+$('#phone-btn').onclick = () => callMyPhone();
+/* Offer a call when Errand still needs details from you: talking is faster than typing them. */
+const offerDismissed = new Set();
+function hideOffer(dismiss) { if (dismiss && S.sid) offerDismissed.add(S.sid); document.querySelector('.call-offer')?.remove(); }
+function maybeOffer(state) {
+  if (!S.sid || S.call || !S.voice?.enabled || offerDismissed.has(S.sid) || !S.composer) return;
+  const show = state && state.phase === 'gathering' && (state.missing || []).length > 0;
+  const existing = document.querySelector('.call-offer');
+  if (!show) { existing?.remove(); return; }
+  if (existing) return;
+  const o = document.createElement('div'); o.className = 'call-offer';
+  o.innerHTML = `<span class="txt">Quicker to talk it through? I still need ${esc(state.missing.join(' and '))}.</span>
+    ${S.voice.phone?.outbound ? `<button class="btn" data-a="phone">${ICON.phone}Call my phone</button>` : ''}
+    <button class="btn" data-a="web">${ICON.mic}Talk here</button><button class="icon-btn x" data-a="x" title="Dismiss">${ICON.bad}</button>`;
+  $('[data-a=web]', o).onclick = () => { hideOffer(true); startCall(); };
+  $('[data-a=phone]', o)?.addEventListener('click', () => callMyPhone());
+  $('[data-a=x]', o).onclick = () => hideOffer(true);
+  S.composer.prepend(o);
+}
+
 /* ======================================================================= router */
 function route() {
   const m = location.hash.match(/^#\/c\/([\w-]+)/);
@@ -890,6 +964,7 @@ window.addEventListener('hashchange', route);
   const b = await api('/api/bootstrap'); S.user = b.user; S.defaultModel = b.default_model;
   $('#user-name').textContent = b.user.name; $('#avatar').textContent = b.user.name[0].toUpperCase();
   try { S.voice = await api('/api/voice/config'); } catch { S.voice = { enabled: false }; }
+  $('#phone-btn').hidden = !S.voice.enabled;
   await Promise.all([loadSessions(), loadModels()]); route();
 })();
 </script>

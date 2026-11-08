@@ -206,6 +206,7 @@ def test_model_error_classification():
     assert model_error_kind("NotFoundError: model does not exist") == "model_not_found"
     assert model_error_kind("RateLimitError: 429 too many requests") == "model_rate_limited"
     assert model_error_kind("ConnectionError: reset") == "model_unavailable"
+    assert model_error_kind("BadRequestError: Budget has been exceeded! Max budget: 1.0") == "model_budget"
 
 
 def test_switching_model_mid_chat_keeps_approval():
@@ -224,9 +225,17 @@ def test_switching_model_mid_chat_keeps_approval():
     agent.handle_user_message("Find a plumber in Indiranagar this week, mornings, under 1500")
     agent.set_model(Blocked(), "blocked-model")
     r = agent.handle_user_message("yes")
-    assert "isn't available with your access" in r and "approval of" in r and not world.side_effects()
+    assert "isn't available with your access" in r and "approval is saved" in r and not world.side_effects()
     agent.set_model(ScriptedModel(), "scripted")
     r = agent.handle_user_message("yes")
     assert "✅ Verified" in r and len(world.side_effects()) == 1
     assert [m["model"] for m in agent.store.messages("s1") if m["role"] == "assistant"] == \
         ["scripted", "blocked-model", "scripted"]
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("haan", "approve"), ("Haan ji, book kar do", "approve"), ("theek hai", "approve"), ("ok kar do", "approve"),
+    ("nahi", "reject"), ("mat karo", "reject"), ("haan lekin 11 baje", "none"), ("haan but cheaper", "none"),
+])
+def test_confirmation_classifier_hindi(text, expected):
+    assert classify_confirmation(text) == expected

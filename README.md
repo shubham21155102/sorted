@@ -110,7 +110,7 @@ Every change is written to the database and read by the next tool call, so it re
 - **Slow turns and proactive messages:** if the agent takes more than 2.5 seconds, it says "One moment." Proactive messages that arrive during a call, such as a provider cancellation, are spoken out.
 - **Connecting a call:** the browser gets a token from `POST /api/voice/token`. That joins a fresh room and dispatches the `errand-voice` agent, with the chat's session id in the dispatch metadata.
 
-### Phone calls via Sarvam (your number +91 80000 00000)
+### Phone calls via Sarvam (a number rented from Sarvam)
 
 The number is rented from **Sarvam Voice Agents**, so Sarvam runs the phone line: telephony, speech and Indian languages. Sorted stays the brain:
 

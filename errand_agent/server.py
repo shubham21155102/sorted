@@ -549,7 +549,7 @@ def start_public_tunnel(port: int) -> None:
             tunnels = json.loads(urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels", timeout=2).read())
             url = next(t["public_url"] for t in tunnels["tunnels"] if t["public_url"].startswith("https://"))
             os.environ["ERRAND_PUBLIC_URL"] = url
-            print(f"public URL (Sarvam tool + webhooks only): {url}")
+            print(f"public URL (Sarvam tool + webhooks only): {url}", flush=True)
             return
         except Exception:
             time.sleep(0.5)
@@ -587,7 +587,7 @@ def main() -> None:
         start_voice_worker(a.port)
     threading.Thread(target=app.poll_events, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(app))
-    print(f"Errand ({app.kind}) on http://127.0.0.1:{a.port}")
+    print(f"Errand ({app.kind}) on http://127.0.0.1:{a.port}", flush=True)
     srv.serve_forever()
 
 

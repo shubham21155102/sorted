@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS memories (
   confirmed INTEGER, status TEXT, evidence TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS processed_events (
   event_id TEXT PRIMARY KEY, user_id TEXT, decision TEXT, at TEXT);
+CREATE TABLE IF NOT EXISTS phone_calls (
+  call_id TEXT PRIMARY KEY, session_id TEXT, provider TEXT, direction TEXT, caller TEXT, started_at TEXT,
+  ended_at TEXT);
 CREATE TABLE IF NOT EXISTS profile (
   user_id TEXT PRIMARY KEY, phone TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS sessions (
@@ -196,6 +199,21 @@ class Store:
     def set_phone(self, user_id: str, phone: str | None, ts: str) -> None:
         self.db.execute("INSERT INTO profile(user_id, phone, updated_at) VALUES (?,?,?) ON CONFLICT(user_id) "
                         "DO UPDATE SET phone=excluded.phone, updated_at=excluded.updated_at", (user_id, phone, ts))
+
+    # ---------------------------------------------------------- phone calls
+    def phone_call(self, call_id: str) -> dict[str, Any] | None:
+        r = self.db.execute("SELECT * FROM phone_calls WHERE call_id=?", (call_id,)).fetchone()
+        return dict(r) if r else None
+
+    def add_phone_call(self, call_id: str, session_id: str, provider: str, direction: str, caller: str,
+                       ts: str) -> None:
+        self.db.execute("INSERT OR IGNORE INTO phone_calls(call_id, session_id, provider, direction, caller, "
+                        "started_at) VALUES (?,?,?,?,?,?)", (call_id, session_id, provider, direction, caller, ts))
+
+    def end_phone_call(self, call_id: str, ts: str) -> bool:
+        """Mark a call ended; False if it was already ended (webhooks can be retried)."""
+        cur = self.db.execute("UPDATE phone_calls SET ended_at=? WHERE call_id=? AND ended_at IS NULL", (ts, call_id))
+        return cur.rowcount > 0
 
     # -------------------------------------------------------------- events
     def event_processed(self, event_id: str) -> bool:

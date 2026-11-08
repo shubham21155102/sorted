@@ -58,7 +58,22 @@ Try: *"Find a plumber for my kitchen tap this week, mornings only, under ₹1,50
 - **Slow turns and proactive messages:** if the agent takes more than 2.5 seconds, it says "One moment." Proactive messages that arrive during a call, such as a provider cancellation, are spoken out.
 - **Connecting a call:** the browser gets a token from `POST /api/voice/token`. That joins a fresh room and dispatches the `errand-voice` agent, with the chat's session id in the dispatch metadata.
 
-### Phone calls (inbound and outbound)
+### Phone calls via Sarvam (your number +91 80000 00000)
+
+The number is rented from **Sarvam Voice Agents**, so Sarvam runs the phone line: telephony, speech and Indian languages. Errand stays the brain:
+
+- **Relay agent:** the Sarvam agent is a thin relay. Every caller turn goes to its one HTTP tool, `errand_turn`, which posts to `/api/sarvam/turn`. The agent then speaks back the reply. Approvals, idempotent booking, memory, limits and the trace work exactly as in chat.
+- **Inbound:** a Sarvam inbound deployment links the number to the agent. Only your registered number (user menu → *Phone number*) is served; any other caller is told so and the call ends. Each call becomes a *Phone call · …* chat.
+- **Outbound ("Call my phone"):** the app uses Sarvam's instant-outbound API. It passes the chat's `session_id` as an agent variable and a code-built briefing as the first line, so the call continues that chat.
+- **Call outcome:** Sarvam's call-completion webhook (`/api/sarvam/webhook`) writes "📞 Phone call ended · 1m 15s", or "Couldn't reach you (no answer / busy / failed — reason)". Retried deliveries are ignored.
+- **Security:** Sarvam reaches the app through `python -m errand_agent.server --public`, which starts ngrok on your fixed domain. Requests through the tunnel can reach **only** `/api/sarvam/*`, and need `ERRAND_SARVAM_TOKEN` (generated into `.env`). Everything else, including the dev controls, stays localhost-only.
+
+**Setup**
+1. Create the agent on Sarvam, either through Sarvam's MCP server (`claude mcp add --transport http sarvam-voice-agents https://mcp.sarvam.ai/voice-agents`) or in the dashboard. `python -m errand_agent.sarvam agent-spec` prints the exact system prompt and `errand_turn` tool definition.
+2. Fill in `SARVAM_ORG_ID`, `SARVAM_WORKSPACE_ID`, `SARVAM_VA_API_KEY`, `SARVAM_APP_ID`, `SARVAM_APP_VERSION` and `SARVAM_CONNECTION_ID` in `.env`.
+3. Run `python -m errand_agent.server --public`, then `python -m errand_agent.sarvam deploy-inbound` (links the number and sets the webhook). Use `python -m errand_agent.sarvam call +91…` to test outbound.
+
+### Phone calls through LiveKit SIP (alternative)
 
 - **Inbound:** you ring the Errand number. A LiveKit dispatch rule puts the call in its own room and dispatches the agent. **Only your registered number is accepted** (user menu → *Phone number*); any other caller hears "this line only serves registered Errand users" and is hung up on. Each accepted call becomes a new chat, *Phone call · <date time>*.
 - **Outbound:** Errand rings you. Click the phone icon in the top bar, or accept the offer above the message box, which appears when Errand still needs details: *"Quicker to talk it through? 📞 Call my phone · 🎙 Talk here"*.
@@ -101,6 +116,7 @@ Run it with `python -m errand_agent.server --voice` (one command; the worker run
 | `llm.py` | LiteLLM adapter (any provider or a LiteLLM proxy), record/replay. |
 | `models.py` | Model catalog for the picker (proxy `/model_group/info`, prices, blocked models). |
 | `voice.py`, `voice_text.py` | LiveKit voice worker: browser, inbound and outbound phone calls (STT → Errand server → TTS), speech-friendly text. |
+| `sarvam.py` | Sarvam Voice Agents bridge: agent spec, inbound deployment, instant outbound calls; server endpoints `/api/sarvam/turn` + `/webhook`. |
 | `telephony.py` | Creates the LiveKit SIP trunks and dispatch rule for a phone number, plus status, test-call and teardown commands. |
 | `server.py`, `static/index.html` | Web app: chats, model picker, voice calls, trace/memory/bookings panel. |
 | `scripted_model.py`, `nlu.py` | Offline deterministic model for evals, with switches to simulate a *misbehaving* model. |

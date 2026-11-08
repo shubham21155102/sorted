@@ -124,6 +124,11 @@ class App:
         return [json.loads(x) for x in out[since:]]
 
 
+def sarvam_missing() -> list[str]:
+    from . import sarvam
+    return sarvam.configured()
+
+
 def now() -> str:
     return datetime.now().replace(microsecond=0).isoformat()
 
@@ -143,6 +148,8 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/api/sessions/(?P<sid>[\w-]+)/brief$", "brief"),
     ("POST", r"^/api/sessions/(?P<sid>[\w-]+)/call_event$", "call_event"),
     ("POST", r"^/api/phone/inbound$", "phone_inbound"),
+    ("POST", r"^/api/sarvam/turn$", "sarvam_turn"),
+    ("POST", r"^/api/sarvam/webhook$", "sarvam_webhook"),
     ("POST", r"^/api/voice/token$", "voice_token"),
     ("GET", r"^/api/sessions$", "list_sessions"),
     ("POST", r"^/api/sessions$", "create_session"),
@@ -180,9 +187,18 @@ def make_handler(app: App):
             n = int(self.headers.get("Content-Length") or 0)
             return json.loads(self.rfile.read(n) or b"{}")
 
+        def _external(self) -> bool:
+            """True when the request came through a public tunnel rather than from this machine."""
+            host = (self.headers.get("Host") or "").split(":")[0]
+            forwarded = any(self.headers.get(h) for h in ("X-Forwarded-For", "Cf-Connecting-Ip", "X-Real-Ip"))
+            return forwarded or host not in ("127.0.0.1", "localhost", "")
+
         def _route(self, method: str) -> None:
             url = urlparse(self.path)
             self.q = {k: v[0] for k, v in parse_qs(url.query).items()}
+            if self._external() and not url.path.startswith("/api/sarvam/"):
+                # Only the Sarvam endpoints (token-protected) are reachable through the public URL.
+                return self._json({"error": "not found"}, 404)
             for m, pat, name in ROUTES:
                 if m == method:
                     match = re.match(pat, url.path)
@@ -226,8 +242,11 @@ def make_handler(app: App):
             ok = all(os.environ.get(k) for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"))
             self._json({"enabled": ok, "url": os.environ.get("LIVEKIT_URL") if ok else None,
                         "provider": "sarvam" if os.environ.get("SARVAM_API_KEY") else "livekit-inference",
-                        "phone": {"outbound": ok and bool(os.environ.get("ERRAND_SIP_OUTBOUND_TRUNK_ID")),
-                                  "inbound_number": os.environ.get("ERRAND_INBOUND_NUMBER") or None},
+                        "phone": {"outbound": (ok and bool(os.environ.get("ERRAND_SIP_OUTBOUND_TRUNK_ID")))
+                                  or not sarvam_missing(),
+                                  "provider": "sarvam" if not sarvam_missing() else "livekit",
+                                  "inbound_number": os.environ.get("SARVAM_AGENT_NUMBER")
+                                  or os.environ.get("ERRAND_INBOUND_NUMBER") or None},
                         "user_phone": app.reader.profile(USER_ID).get("phone")})
 
         def get_profile(self) -> None:
@@ -247,6 +266,18 @@ def make_handler(app: App):
             phone = (self._body().get("phone") or app.reader.profile(USER_ID).get("phone") or "").strip()
             if not phone:
                 return self._json({"error": "no_phone", "message": "Add your phone number first."}, 400)
+            from . import sarvam
+            if not sarvam.configured():
+                with app.lock:
+                    app.store.create_session(sid, USER_ID, now(), model=app.default_model())
+                    brief = app.agent(sid).call_brief()
+                    from .voice_text import speakable
+                    first = f"Hi {USER_NAME}, this is Errand. " + speakable(brief)
+                    attempt = sarvam.place_call(phone, sid, first)
+                    app.store.add_phone_call(attempt, sid, "sarvam", "outbound", phone, now())
+                    app.store.add_message(sid, "assistant", f"📞 Calling {phone[:3]}•••{phone[-3:]} (Sarvam)…",
+                                          now(), USER_ID, kind="call")
+                return self._json({"status": "calling", "provider": "sarvam", "attempt_id": attempt, "phone": phone})
             if not os.environ.get("ERRAND_SIP_OUTBOUND_TRUNK_ID"):
                 return self._json({"error": "phone_not_configured",
                                    "message": "Phone calls aren't set up yet (run python -m errand_agent.telephony setup)."}, 400)
@@ -278,6 +309,78 @@ def make_handler(app: App):
             if text:
                 with app.lock:
                     app.store.add_message(sid, "assistant", text, now(), USER_ID, kind="call")
+            self._json({"ok": True})
+
+        def _sarvam_authorized(self, body: dict[str, Any]) -> bool:
+            token = os.environ.get("ERRAND_SARVAM_TOKEN")
+            meta = body.get("metadata") or (body.get("webhook_config") or {}).get("metadata") or {}
+            got = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip() \
+                or str(meta.get("token") or "")
+            import hmac
+            return bool(token) and hmac.compare_digest(got, token)
+
+        def sarvam_turn(self) -> None:
+            """Sarvam agent's per-turn tool: run the caller's words through Errand, return what to say."""
+            from .voice_text import speakable
+            b = self._body()
+            if not self._sarvam_authorized(b):
+                return self._json({"error": "unauthorized"}, 401)
+            text = (b.get("text") or "").strip()
+            call_id = str(b.get("interaction_id") or "").strip()
+            caller = str(b.get("caller") or "").replace(" ", "")
+            sid = str(b.get("session_id") or "").strip()
+            if sid.startswith("@") or sid.startswith("{{"):
+                sid = ""  # unresolved agent variable (inbound calls don't set it)
+            with app.lock:
+                known = app.reader.phone_call(call_id) if call_id else None
+                if known:
+                    sid = known["session_id"]
+                elif sid and app.reader.session(sid):
+                    if call_id:
+                        app.store.add_phone_call(call_id, sid, "sarvam", "outbound", caller, now())
+                        app.store.add_message(sid, "assistant", "📞 Phone call connected", now(), USER_ID, kind="call")
+                else:  # a new inbound call: only the user's registered number may use the line
+                    mine = app.reader.profile(USER_ID).get("phone")
+                    if not mine or caller != mine:
+                        return self._json({"say": "Sorry, this line only serves registered Errand users. Goodbye.",
+                                           "end_call": True})
+                    sid = new_session_id()
+                    app.store.create_session(sid, USER_ID, now(), title=f"Phone call · {datetime.now():%d %b %H:%M}",
+                                             model=app.default_model())
+                    app.store.add_phone_call(call_id or sid, sid, "sarvam", "inbound", caller, now())
+                    app.store.add_message(sid, "assistant", "📞 Incoming phone call (Sarvam)", now(), USER_ID,
+                                          kind="call")
+                if not text:
+                    return self._json({"say": "Sorry, I didn't catch that. Could you say it again?", "session_id": sid})
+                reply = app.agent(sid).handle_user_message(text, channel="phone")
+            self._json({"say": speakable(reply), "session_id": sid, "end_call": False})
+
+        def sarvam_webhook(self) -> None:
+            """Call-completion event from Sarvam (inbound deployment or instant outbound): write the
+            'call ended' / 'not connected' marker into the call's chat, exactly once per call."""
+            b = self._body()
+            if not self._sarvam_authorized(b):
+                return self._json({"error": "unauthorized"}, 401)
+            meta = b.get("metadata") or (b.get("webhook_config") or {}).get("metadata") or {}
+            ids = [i for i in (b.get("attempt_id"), b.get("interaction_id")) if i]
+            with app.lock:
+                known = next((c for c in (app.reader.phone_call(i) for i in ids) if c), None)
+                sid = (known or {}).get("session_id") or meta.get("session_id")
+                if not sid:
+                    return self._json({"ok": True, "ignored": "unknown call"})
+                if known:
+                    fresh = [app.store.end_phone_call(i, now()) for i in ids if app.reader.phone_call(i)]
+                    if not any(fresh):
+                        return self._json({"ok": True, "duplicate": True})
+                status = b.get("status") or "connected"
+                secs = int(float(b.get("duration") or 0))
+                if status == "connected" and secs:
+                    text = f"📞 Phone call ended · {secs // 60}m {secs % 60:02d}s"
+                else:
+                    why = {"no_answer": "no answer", "busy": "line busy", "failed": "call failed"}.get(status, status)
+                    reason = f" — {b['failure_reason']}" if b.get("failure_reason") else ""
+                    text = f"📞 Couldn't reach you ({why}{reason}). You can keep chatting here or try the call again."
+                app.store.add_message(sid, "assistant", text, now(), USER_ID, kind="call")
             self._json({"ok": True})
 
         def phone_inbound(self) -> None:
@@ -429,6 +532,30 @@ def make_handler(app: App):
     return H
 
 
+def start_public_tunnel(port: int) -> None:
+    """Start ngrok for this port and set ERRAND_PUBLIC_URL. Logged-in ngrok accounts get a fixed
+    domain, so the URL configured in the Sarvam agent's tool keeps working across restarts.
+    The router only serves /api/sarvam/* to requests that arrive through the tunnel."""
+    import atexit
+    import subprocess
+    import urllib.request
+    if not os.environ.get("ERRAND_SARVAM_TOKEN"):
+        raise SystemExit("--public needs ERRAND_SARVAM_TOKEN in .env (it protects the public endpoints)")
+    proc = subprocess.Popen(["ngrok", "http", str(port), "--log", "stdout"], stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    atexit.register(proc.terminate)
+    for _ in range(40):
+        try:
+            tunnels = json.loads(urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels", timeout=2).read())
+            url = next(t["public_url"] for t in tunnels["tunnels"] if t["public_url"].startswith("https://"))
+            os.environ["ERRAND_PUBLIC_URL"] = url
+            print(f"public URL (Sarvam tool + webhooks only): {url}")
+            return
+        except Exception:
+            time.sleep(0.5)
+    raise SystemExit("ngrok did not start; run `ngrok http %d` manually and set ERRAND_PUBLIC_URL" % port)
+
+
 def start_voice_worker(port: int) -> None:
     """Run the voice worker as a child process that talks to this server."""
     import atexit
@@ -450,7 +577,11 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--fresh", action="store_true", help="wipe local state and reseed")
     ap.add_argument("--voice", action="store_true", help="also start the LiveKit voice worker")
+    ap.add_argument("--public", action="store_true",
+                    help="expose ONLY the token-protected /api/sarvam/* endpoints via ngrok (for Sarvam phone calls)")
     a = ap.parse_args()
+    if a.public:
+        start_public_tunnel(a.port)
     app = App(a.data, a.model, a.fresh)
     if a.voice:
         start_voice_worker(a.port)

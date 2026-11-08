@@ -135,6 +135,10 @@ class LiteLLM:
         self.timeout_s = timeout_s
         self.api_base = os.environ.get("LITELLM_API_BASE") or None
         self.api_key = os.environ.get("LITELLM_API_KEY") or None
+        if self.api_base and not self.model.startswith(("openai/", "litellm_proxy/")):
+            # With a proxy, ERRAND_MODEL is the proxy's alias (e.g. "azure/gpt-5.5"). Send it to the proxy's
+            # OpenAI-compatible endpoint instead of letting LiteLLM call that provider directly.
+            self.model = f"openai/{self.model}"
 
     def complete(self, req: ModelRequest) -> ModelResponse:
         kwargs: dict[str, Any] = dict(model=self.model, messages=to_openai_messages(req.system, req.messages),

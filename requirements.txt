@@ -1,2 +1,3 @@
 litellm>=1.70
+mcp>=1.0  # litellm imports its MCP handler on tool-calling requests
 pytest>=8

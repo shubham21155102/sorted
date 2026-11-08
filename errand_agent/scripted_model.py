@@ -93,7 +93,7 @@ class ScriptedModel:
         m = re.search(r"Execute exactly it now: (\w+)\((.*)\)", notes)
         if m:
             return self._execute_approved(v, m.group(1), dict(re.findall(r'(\w+)="([^"]*)"', m.group(2))))
-        if "nothing is awaiting approval" in notes:
+        if "no proposal is awaiting approval" in notes:
             oc = st.get("last_outcome") or {}
             return (f"That's already taken care of ({oc.get('booking_id', 'see above')}); "
                     f"I haven't booked anything again.")

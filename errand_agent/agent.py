@@ -200,8 +200,10 @@ class ErrandAgent:
                          f"Do not execute; re-confirm by calling request_approval again.")
         elif d["decision"] == "no_pending":
             prev = f" Previous proposal {p['id']} is already '{p['status']}'." if p else ""
-            notes.append("The user confirmed, but nothing is awaiting approval." + prev +
-                         " Do not repeat any booking/cancellation; just tell them the current status.")
+            notes.append("The user said yes, but no proposal is awaiting approval, so nothing was approved." + prev +
+                         " Never repeat a booking/cancellation that already happened. If they are agreeing to a "
+                         "suggestion you just made, continue it; any booking/cancel/reschedule still needs "
+                         "request_approval first.")
         elif p is not None:
             notes.append(f"Proposal {p['id']} is still awaiting approval; this message did NOT approve it. "
                          f"If the user changed a detail, update the request and make a new proposal.")

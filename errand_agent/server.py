@@ -9,11 +9,13 @@ cancellations show up in the chat without a user message.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
 import threading
 import time
+import urllib.request
 import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 from .agent import ErrandAgent
 from .app import ARCHIVE_SESSION, default_model_kind, make_agent, make_llm, seed_store
 from .connectors import ConnectorHub
+from . import persona
 from .models import Catalog, voice_model
 from .clock import SystemClock
 from .mock_env import MockWorld, ScenarioConfig
@@ -151,6 +154,9 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/api/bootstrap$", "bootstrap"),
     ("GET", r"^/api/models$", "models"),
     ("GET", r"^/api/voice/config$", "voice_config"),
+    ("GET", r"^/api/voice/persona$", "get_persona"),
+    ("PUT", r"^/api/voice/persona$", "put_persona"),
+    ("GET", r"^/api/voice/preview$", "voice_preview"),
     ("GET", r"^/api/profile$", "get_profile"),
     ("GET", r"^/static/(?P<folder>logos|brand)/(?P<name>[a-z0-9-]+\.(?:svg|png|ico))$", "asset"),
     ("GET", r"^/favicon\.ico$", "favicon"),
@@ -179,6 +185,9 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/api/memories$", "memories"),
     ("POST", r"^/api/memories/(?P<mid>[\w-]+)/forget$", "forget"),
     ("GET", r"^/api/bookings$", "bookings"),
+    ("POST", r"^/api/bookings/(?P<bid>[\w-]+)/email$", "booking_email"),
+    ("POST", r"^/api/bookings/(?P<bid>[\w-]+)/calendar$", "booking_calendar_add"),
+    ("DELETE", r"^/api/bookings/(?P<bid>[\w-]+)/calendar$", "booking_calendar_remove"),
     ("POST", r"^/api/dev/force$", "dev_force"),
     ("POST", r"^/api/dev/provider_cancel$", "dev_cancel"),
     ("POST", r"^/api/dev/restart$", "dev_restart"),
@@ -300,7 +309,59 @@ def make_handler(app: App):
                                   "provider": "sarvam" if not sarvam_missing() else "livekit",
                                   "inbound_number": os.environ.get("SARVAM_AGENT_NUMBER")
                                   or os.environ.get("ERRAND_INBOUND_NUMBER") or None},
-                        "user_phone": app.reader.profile(USER_ID).get("phone")})
+                        "user_phone": app.reader.profile(USER_ID).get("phone"),
+                        "persona": {**persona.settings(app.reader.profile(USER_ID)),
+                                    "greeting": persona.greeting(persona.settings(app.reader.profile(USER_ID)), USER_NAME),
+                                    "outbound_greeting": persona.greeting(persona.settings(app.reader.profile(USER_ID)),
+                                                                          USER_NAME, outbound=True)}})
+
+        def get_persona(self) -> None:
+            self._json({**persona.settings(app.reader.profile(USER_ID)),
+                        "voices": persona.VOICES, "pace_range": persona.PACE_RANGE,
+                        "styles": {k: v[0] for k, v in persona.STYLES.items()},
+                        "preview_available": bool(os.environ.get("SARVAM_API_KEY"))})
+
+        def put_persona(self) -> None:
+            try:
+                fields = persona.validate(self._body())
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            with app.lock:
+                app.store.set_voice(USER_ID, fields, now())
+            self._json(persona.settings(app.reader.profile(USER_ID)))
+
+        def voice_preview(self) -> None:
+            """A short sample of a voice (Sarvam bulbul:v3), cached on disk. Local only."""
+            key = os.environ.get("SARVAM_API_KEY")
+            if not key:
+                return self._json({"error": "Voice previews need a Sarvam API key"}, 400)
+            try:
+                f = persona.validate({"speaker": self.q.get("speaker", "kavya"), "pace": self.q.get("pace", "1.0")})
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            p = persona.settings(f)
+            cache_dir = os.path.join(app.data, "voice_previews")
+            os.makedirs(cache_dir, exist_ok=True)
+            path = os.path.join(cache_dir, f"{p['speaker']}-{p['pace']}.wav")
+            if not os.path.exists(path):
+                req = urllib.request.Request("https://api.sarvam.ai/text-to-speech", method="POST",
+                    data=json.dumps({"text": persona.preview_line(p, USER_NAME), "target_language_code": "en-IN",
+                                     "speaker": p["speaker"], "model": "bulbul:v3", "pace": p["pace"]}).encode(),
+                    headers={"api-subscription-key": key, "Content-Type": "application/json"})
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as r:
+                        audio = base64.b64decode(json.loads(r.read())["audios"][0])
+                except Exception as e:
+                    return self._json({"error": f"Sarvam preview failed: {str(e)[:200]}"}, 502)
+                with open(path, "wb") as fh:
+                    fh.write(audio)
+            with open(path, "rb") as fh:
+                body = fh.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
 
         def _redirect(self, url: str) -> None:
             self.send_response(302)
@@ -379,7 +440,8 @@ def make_handler(app: App):
                     app.store.create_session(sid, USER_ID, now(), model=app.default_model())
                     brief = app.agent(sid).call_brief()
                     from .voice_text import speakable
-                    first = f"Hi {USER_NAME}, this is Errand. " + speakable(brief)
+                    first = persona.greeting(persona.settings(app.reader.profile(USER_ID)), USER_NAME,
+                                             outbound=True) + " " + speakable(brief)
                     attempt = sarvam.place_call(phone, sid, first)
                     app.store.add_phone_call(attempt, sid, "sarvam", "outbound", phone, now())
                     app.store.add_message(sid, "assistant", f"📞 Calling {phone[:3]}•••{phone[-3:]} (Sarvam)…",
@@ -610,8 +672,38 @@ def make_handler(app: App):
             with app.lock:
                 rows = app.world.list_bookings(USER_ID)["bookings"]
             t = app.world.clock.now().isoformat()
-            self._json({"bookings": [{**b, "upcoming": b["slot"] > t,
+            google = bool(app.hub.account())
+            self._json({"google": google, "bookings": [{**b, "upcoming": b["slot"] > t,
                                       "on_calendar": bool(app.reader.calendar_event(b["booking_id"]))} for b in rows]})
+
+        def _booking_for_connectors(self, bid: str) -> dict[str, Any] | None:
+            b = next((x for x in app.world.list_bookings(USER_ID)["bookings"] if x["booking_id"] == bid), None)
+            if b:
+                b = {**b, "area": app.world.state["providers"].get(b.get("provider_id"), {}).get("area")}
+            return b
+
+        def _booking_action(self, bid: str, fn: Any) -> None:
+            from .connectors import GoogleError
+            with app.lock:
+                b = self._booking_for_connectors(bid)
+                if not b:
+                    return self._json({"error": "Booking not found"}, 404)
+                try:
+                    out = fn(b)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                except GoogleError as e:
+                    return self._json({"error": f"Google said no ({e.status}). Try reconnecting in Connectors."}, 502)
+            self._json(out)
+
+        def booking_email(self, bid: str) -> None:
+            self._booking_action(bid, lambda b: {"sent_to": app.hub.resend_email(b)})
+
+        def booking_calendar_add(self, bid: str) -> None:
+            self._booking_action(bid, lambda b: {"added": app.hub.add_to_calendar(b), "on_calendar": True})
+
+        def booking_calendar_remove(self, bid: str) -> None:
+            self._booking_action(bid, lambda b: {"removed": app.hub.remove_from_calendar(bid), "on_calendar": False})
 
         def dev_force(self) -> None:
             b = self._body()

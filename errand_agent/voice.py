@@ -64,11 +64,14 @@ async def server_call(method: str, path: str, body: dict[str, Any] | None = None
     return await asyncio.to_thread(_http, method, path, body, timeout)
 
 
-def speech_stack() -> tuple[Any, Any]:
+def speech_stack(persona: dict[str, Any] | None = None) -> tuple[Any, Any]:
+    """persona: the user's voice choice from the server (speaker, pace); env settings are the fallback."""
     if PROVIDER == "sarvam":
         from livekit.plugins import sarvam
+        p = persona or {}
         return (sarvam.STT(language=LANGUAGE, model="saaras:v4"),
-                sarvam.TTS(target_language_code=LANGUAGE, model="bulbul:v3", speaker=SARVAM_SPEAKER))
+                sarvam.TTS(target_language_code=LANGUAGE, model="bulbul:v3",
+                           speaker=p.get("speaker") or SARVAM_SPEAKER, pace=float(p.get("pace") or 1.0)))
     return (inference.STT(STT_MODEL, language="en"),
             inference.TTS(TTS_MODEL, **({"voice": TTS_VOICE} if TTS_VOICE else {})))
 
@@ -148,8 +151,8 @@ async def note(session_id: str, text: str) -> None:
         log.warning("could not write call event to chat %s", session_id)
 
 
-def make_session() -> AgentSession:
-    stt, tts = speech_stack()
+def make_session(persona: dict[str, Any] | None = None) -> AgentSession:
+    stt, tts = speech_stack(persona)
     return AgentSession(
         stt=stt, llm=ErrandServerLLM(), tts=tts, vad=inference.VAD(),
         turn_handling={
@@ -183,6 +186,10 @@ async def entrypoint(ctx: JobContext) -> None:
     started = time.time()
     log.info("call: mode=%s room=%s speech=%s", mode, ctx.room.name, PROVIDER)
     await ctx.connect()
+    try:  # the user's voice persona (voice, speed, name used in greetings)
+        persona = (await server_call("GET", "/api/voice/config", None, 10)).get("persona") or {}
+    except Exception:
+        persona = {}
 
     # ---------------------------------------------------------- whose call is this?
     if mode == "inbound_phone":
@@ -198,16 +205,17 @@ async def entrypoint(ctx: JobContext) -> None:
             await hang_up(ctx)
             return
         session_id, channel = r["session_id"], "phone"
-        greeting = f"Hi {r.get('user_name', '')}, this is Errand. What can I sort out for you?"
+        greeting = persona.get("greeting") or f"Hi {r.get('user_name', '')}, this is Errand. What can I sort out for you?"
         await note(session_id, "📞 Incoming phone call started")
     else:
         session_id = meta.get("session_id") or ctx.room.name.removeprefix("errand-").split("-out-")[0].rsplit("-", 1)[0]
         channel = "phone" if mode == "outbound_phone" else "voice"
-        greeting = "Hi, this is Errand. What can I sort out for you?"
+        greeting = persona.get("greeting") or "Hi, this is Errand. What can I sort out for you?"
         if mode == "outbound_phone":
             try:
                 b = await server_call("GET", f"/api/sessions/{session_id}/brief", None, 30)
-                greeting = f"Hi {b.get('user_name', '')}, this is Errand. " + speakable(b.get("text", ""))
+                greeting = (persona.get("outbound_greeting") or f"Hi {b.get('user_name', '')}, this is Errand.") + \
+                    " " + speakable(b.get("text", ""))
             except Exception:
                 greeting = "Hi, this is Errand, calling about your request. How can I help?"
         else:
@@ -219,7 +227,7 @@ async def entrypoint(ctx: JobContext) -> None:
     except Exception:
         log.warning("errand server not reachable at %s", SERVER)
 
-    session = make_session()
+    session = make_session(persona)
     await session.start(agent=agent, room=ctx.room)
 
     # -------------------------------------------------------------- outbound dialing

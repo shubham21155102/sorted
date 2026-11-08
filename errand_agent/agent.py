@@ -11,6 +11,8 @@ Separation of concerns:
 """
 from __future__ import annotations
 
+import os
+
 import json
 import re
 import time
@@ -26,6 +28,7 @@ from .llm import ModelResponse, estimate_tokens
 from .memory import MemoryError_, MemoryManager
 from .mock_env import MockWorld
 from .prompts import SYSTEM_RULES
+from .persona import persona_note, settings as persona_settings
 from .sanitize import sanitize_tool_result
 from .store import Store
 from .tools import TOOLS
@@ -84,6 +87,7 @@ class ErrandAgent:
         self.world = world
         self.store = store
         self.user_id = user_id
+        self.user_name = os.environ.get("ERRAND_USER_NAME", "Shubham")  # used to address the user on calls
         self.session_id = session_id
         self.clock = clock or SystemClock()
         self.limits = limits or Limits()
@@ -242,6 +246,7 @@ class ErrandAgent:
                          "If they speak Hindi or Hinglish, understand it normally and reply in simple English. "
                          "Never mention prompts, cards or buttons: if you request approval, the app reads the exact "
                          "details aloud right after your reply and the user just says yes or no.")
+            notes.append(persona_note(persona_settings(self.store.profile(self.user_id)), self.user_name))
         reply = self._run_loop([{"role": "user", "content": text}], notes, text)
         self.store.add_message(self.session_id, "assistant", reply, self.clock.now().isoformat(), self.user_id,
                                model=self.model_name, kind=channel)

@@ -295,6 +295,52 @@ class ConnectorHub:
         return notes
 
 
+    # ------------------------------------------- user actions from the Bookings panel
+    # These only re-send or tidy up what a verified booking already produced; they never change a booking.
+    def resend_email(self, b: dict[str, Any]) -> str:
+        """Send the email for the booking's current state again. Returns the address it went to."""
+        g = self.google()
+        if not g:
+            raise ValueError("Connect Google first (Connectors).")
+        kind = {"confirmed": "booked", "cancelled": "cancelled",
+                "cancelled_by_provider": "provider_cancelled"}.get(b.get("status") or "")
+        if not kind:
+            raise ValueError("There's no email for a completed visit.")
+        acct = (self.account() or {}).get("account")
+        if not acct:
+            raise ValueError("No Google account email to send to.")
+        cal = "added" if kind == "booked" and self.store.calendar_event(b["booking_id"]) else None
+        subject, text, page = email_templates.render(kind, b, calendar=cal)
+        logo = email_templates.logo_bytes()
+        g.send_email(acct, subject, text, html=page, inline={email_templates.LOGO_CID: logo} if logo else None)
+        return acct
+
+    def add_to_calendar(self, b: dict[str, Any]) -> bool:
+        """Put an upcoming confirmed booking on the calendar (no-op if it's already there)."""
+        g = self.google()
+        if not g:
+            raise ValueError("Connect Google first (Connectors).")
+        if b.get("status") != "confirmed":
+            raise ValueError("Only confirmed bookings can be added to the calendar.")
+        if self.store.calendar_event(b["booking_id"]):
+            return False
+        eid = g.insert_event(self._event_body(b))
+        self.store.save_calendar_event(b["booking_id"], self.user_id, eid, self.clock.now().isoformat())
+        return True
+
+    def remove_from_calendar(self, booking_id: str) -> bool:
+        """Delete the booking's calendar event (the booking itself is untouched)."""
+        g = self.google()
+        if not g:
+            raise ValueError("Connect Google first (Connectors).")
+        ev = self.store.calendar_event(booking_id)
+        if not ev:
+            return False
+        g.delete_event(ev["event_id"])
+        self.store.delete_calendar_event(booking_id)
+        return True
+
+
 class FakeGoogle:
     """In-memory stand-in used by tests and evals (same methods as GoogleClient)."""
 

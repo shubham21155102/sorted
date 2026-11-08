@@ -227,6 +227,10 @@ svg { display: block; }
 .item:hover { background: var(--hover); }
 .item .main-col { flex: 1; min-width: 0; }
 .item .k2 { font-size: 12.5px; color: var(--muted); }
+.bk-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.bk-act { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink-2); background: var(--bg); }
+.bk-act:hover { color: var(--ink); border-color: var(--muted); }
+.bk-act:disabled { opacity: .6; cursor: default; }
 .item .v { font-size: 14px; word-wrap: break-word; }
 .pill { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--hover); color: var(--ink-2); white-space: nowrap; font-weight: 500; }
 .pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.bad { background: var(--bad-soft); color: var(--bad); }
@@ -287,6 +291,20 @@ svg { display: block; }
 .modal .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 
 /* connectors */
+.voice-modal { width: min(560px, 100%); max-height: min(86vh, 860px); overflow-y: auto; }
+.voice-modal h3 { display: flex; align-items: center; gap: 8px; }
+.voice-label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin: 12px 0 7px; display: flex; justify-content: space-between; }
+.voice-val { font-weight: 500; color: var(--muted); }
+.voice-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; max-height: 240px; overflow-y: auto; padding: 2px; }
+.voice-chip { display: flex; align-items: center; border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden; }
+.voice-chip.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.voice-chip .vc-name { flex: 1; text-align: left; padding: 7px 9px; font-size: 13.5px; }
+.voice-chip .vc-play { padding: 7px 9px; font-size: 11px; color: var(--muted); border-left: 1px solid var(--line); }
+.voice-chip .vc-play:hover, .voice-chip .vc-name:hover { background: var(--hover); color: var(--ink); }
+.modal input.voice-pace { padding: 0; border: 0; background: none; accent-color: var(--accent); }
+.voice-styles { display: flex; gap: 16px; }
+.vstyle { display: flex; align-items: center; gap: 7px; font-size: 13.5px; cursor: pointer; }
+.modal .voice-styles input[type=radio] { appearance: auto; width: auto; padding: 0; margin: 0; accent-color: var(--accent); }
 .conn-modal { width: min(620px, 100%); max-height: min(86vh, 900px); overflow-y: auto; }
 .conn-modal h3 { display: flex; align-items: center; gap: 8px; }
 .conn { border: 1px solid var(--line-2); border-radius: 14px; padding: 14px 16px; margin: 10px 0; }
@@ -427,6 +445,7 @@ const S = { user: null, model: '', sessions: [], sid: null, count: 0, busy: fals
             models: [], defaultModel: 'scripted', chatModel: null, homeModel: null };
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
+const BRAND = 'Errand';
 const LOGO_IMG = '<img src="/static/brand/logo-128.png" alt="" draggable="false">';
 const ICON = {
   mark: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
@@ -860,16 +879,43 @@ async function refreshPanel(full = false) {
       <div class="section-label">Inferred (${inferred.length}) — used only after you confirm</div>${inferred.map(row).join('') || '<div class="empty-note">Nothing yet.</div>'}</div>`;
     body.querySelectorAll('.forget').forEach(b => b.onclick = async () => { await api(`/api/memories/${b.dataset.id}/forget`, { method: 'POST' }); toast('Forgotten'); refreshPanel(true); });
   } else {
-    const { bookings } = await api('/api/bookings');
+    const { bookings, google } = await api('/api/bookings');
+    S.bookingsGoogle = google;
     const up = bookings.filter(b => b.upcoming).sort((a, b) => a.slot.localeCompare(b.slot)), past = bookings.filter(b => !b.upcoming).reverse();
     sub.textContent = `${up.filter(b => b.status === 'confirmed').length} upcoming`;
     const pill = s => `<span class="pill ${s === 'confirmed' ? 'ok' : s === 'completed' ? '' : s.includes('provider') ? 'bad' : 'warn'}">${esc(s.replace(/_/g, ' '))}</span>`;
-    const row = b => `<div class="item"><div class="main-col"><div class="v">${esc(b.provider_name)}${b.on_calendar ? ' <span class="pill violet" title="On your Google Calendar">📅 calendar</span>' : ''}</div><div class="k2">${esc(b.service.replace('_', ' '))} · ${esc(fmtSlot(b.slot))} · ₹${b.price} · ${esc(b.booking_id)}</div></div>${pill(b.status)}</div>`;
-    body.innerHTML = `<div class="card-list"><div class="section-label">Upcoming</div>${up.map(row).join('') || '<div class="empty-note">No upcoming bookings.</div>'}
-      <div class="section-label">Past</div>${past.map(row).join('') || '<div class="empty-note">None.</div>'}</div>`;
+    const acts = b => {
+      if (!S.bookingsGoogle) return '';
+      const cal = b.on_calendar
+        ? `<button class="bk-act" data-act="cal-remove" data-id="${esc(b.booking_id)}">📅 Remove from calendar</button>`
+        : (b.upcoming && b.status === 'confirmed' ? `<button class="bk-act" data-act="cal-add" data-id="${esc(b.booking_id)}">📅 Add to calendar</button>` : '');
+      const mail = ['confirmed', 'cancelled', 'cancelled_by_provider'].includes(b.status)
+        ? `<button class="bk-act" data-act="email" data-id="${esc(b.booking_id)}">✉️ Resend email</button>` : '';
+      return mail || cal ? `<div class="bk-acts">${mail}${cal}</div>` : '';
+    };
+    const row = b => `<div class="item"><div class="main-col"><div class="v">${esc(b.provider_name)}${b.on_calendar ? ' <span class="pill violet" title="On your Google Calendar">📅 calendar</span>' : ''}</div><div class="k2">${esc(b.service.replace('_', ' '))} · ${esc(fmtSlot(b.slot))} · ₹${b.price} · ${esc(b.booking_id)}</div>${acts(b)}</div>${pill(b.status)}</div>`;
+    const sig = JSON.stringify([bookings, S.bookingsGoogle]);
+    if (full || sig !== S.bookingsSig) {  // don't rebuild (and swallow clicks) when nothing changed
+      S.bookingsSig = sig;
+      body.innerHTML = `<div class="card-list"><div class="section-label">Upcoming</div>${up.map(row).join('') || '<div class="empty-note">No upcoming bookings.</div>'}
+        <div class="section-label">Past</div>${past.map(row).join('') || '<div class="empty-note">None.</div>'}</div>`;
+      body.querySelectorAll('.bk-act').forEach(btn => btn.onclick = () => bookingAction(btn));
+    }
   }
 }
 setInterval(() => { if (S.panel && !S.busy) refreshPanel(); }, 2000);
+
+async function bookingAction(btn) {
+  const id = btn.dataset.id, act = btn.dataset.act;
+  if (act === 'cal-remove' && !confirm(`Remove booking ${id} from your Google Calendar? The booking itself stays.`)) return;
+  const label = btn.textContent; btn.disabled = true; btn.textContent = 'Working…';
+  try {
+    if (act === 'email') { const r = await api(`/api/bookings/${id}/email`, { method: 'POST' }); toast(`Email sent to ${r.sent_to}`); }
+    else if (act === 'cal-add') { await api(`/api/bookings/${id}/calendar`, { method: 'POST' }); toast('Added to your Google Calendar'); }
+    else { await api(`/api/bookings/${id}/calendar`, { method: 'DELETE' }); toast('Removed from your Google Calendar'); }
+    refreshPanel(true);
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = label; }
+}
 
 /* ====================================================================== chrome */
 $('#new-chat').onclick = newChat;
@@ -889,6 +935,7 @@ $('#user-btn').onclick = e => { e.stopPropagation(); openMenu(e.currentTarget, [
   { text: 'Memory', icon: ICON.brain, run: () => { S.tab = 'memory'; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.tab === 'memory')); setPanel(true); } },
   { text: 'Connectors', icon: ICON.plug, run: () => openConnectors() },
   { text: 'Phone number', icon: ICON.phone, run: () => phoneDialog() },
+  { text: 'Voice', icon: ICON.mic, run: () => openVoice() },
   { text: 'Bookings', icon: ICON.cal, run: () => { S.tab = 'bookings'; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.tab === 'bookings')); setPanel(true); } },
   '-', { label: 'Appearance' },
   { text: 'Light', icon: ICON.sun, run: () => setTheme('light') }, { text: 'Dark', icon: ICON.moon, run: () => setTheme('dark') },
@@ -1014,6 +1061,45 @@ const CONN_TOGGLES = {
   calendar_events: 'Add confirmed bookings to my calendar (move / remove on changes)',
   email_confirmations: 'Email me a confirmation after each booking change',
 };
+async function openVoice() {
+  document.querySelector('.modal-back.voice-back')?.remove();
+  const back = document.createElement('div'); back.className = 'modal-back voice-back';
+  back.innerHTML = `<div class="modal voice-modal" role="dialog" aria-label="Voice"><h3>${ICON.mic} Voice</h3>
+    <p>Who answers your calls, in the browser and on the phone. The assistant takes the voice's name, like “Kavya from ${esc(BRAND)}”.</p>
+    <div class="voice-body">Loading…</div>
+    <div class="row"><button class="btn" data-a="close">Cancel</button><button class="btn primary" data-a="save">Save</button></div></div>`;
+  document.body.appendChild(back);
+  let audio = null;
+  const close = () => { audio?.pause(); back.remove(); };
+  back.onclick = e => { if (e.target === back) close(); };
+  $('[data-a=close]', back).onclick = close;
+  let cur;
+  try { cur = await api('/api/voice/persona'); } catch (e) { $('.voice-body', back).textContent = 'Could not load: ' + e.message; return; }
+  const pick = { speaker: cur.speaker, pace: cur.pace, style: cur.style };
+  const body = $('.voice-body', back);
+  body.innerHTML = `<div class="voice-label">Voice</div><div class="voice-grid">${cur.voices.map(v => `<div class="voice-chip${v === pick.speaker ? ' on' : ''}" data-v="${v}">
+      <button class="vc-name">${esc(v[0].toUpperCase() + v.slice(1))}</button>${cur.preview_available ? `<button class="vc-play" title="Preview" aria-label="Preview ${esc(v)}">▶</button>` : ''}</div>`).join('')}</div>
+    <div class="voice-label">Speaking speed <span class="voice-val">${pick.pace.toFixed(2)}×</span></div>
+    <input type="range" class="voice-pace" min="${cur.pace_range[0]}" max="${cur.pace_range[1]}" step="0.05" value="${pick.pace}">
+    <div class="voice-label">Style</div><div class="voice-styles">${Object.entries(cur.styles).map(([k, label]) => `<label class="vstyle"><input type="radio" name="vstyle" value="${k}" ${k === pick.style ? 'checked' : ''}><span>${esc(label)}</span></label>`).join('')}</div>`;
+  const play = v => {
+    audio?.pause();
+    audio = new Audio(`/api/voice/preview?speaker=${encodeURIComponent(v)}&pace=${pick.pace.toFixed(2)}`);
+    audio.play().catch(() => toast('Could not play the preview'));
+  };
+  body.querySelectorAll('.voice-chip').forEach(c => {
+    $('.vc-name', c).onclick = () => { pick.speaker = c.dataset.v; body.querySelectorAll('.voice-chip').forEach(x => x.classList.toggle('on', x === c)); };
+    $('.vc-play', c)?.addEventListener('click', () => { $('.vc-name', c).click(); play(c.dataset.v); });
+  });
+  const pace = $('.voice-pace', body);
+  pace.oninput = () => { pick.pace = +pace.value; $('.voice-val', body).textContent = pick.pace.toFixed(2) + '×'; };
+  body.querySelectorAll('[name=vstyle]').forEach(r => r.onchange = () => { pick.style = r.value; });
+  $('[data-a=save]', back).onclick = async () => {
+    try { const r = await api('/api/voice/persona', { method: 'PUT', body: pick }); toast(`${r.name} will answer your calls`); close(); }
+    catch (e) { toast(e.message); }
+  };
+}
+
 async function openConnectors(flash) {
   document.querySelector('.modal-back.conn-back')?.remove();
   const back = document.createElement('div'); back.className = 'modal-back conn-back';

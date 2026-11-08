@@ -51,7 +51,10 @@ class Store:
         self.db.executescript(SCHEMA)
         for ddl in ("ALTER TABLE messages ADD COLUMN kind TEXT DEFAULT 'chat'",  # migrations for older DBs
                     "ALTER TABLE messages ADD COLUMN model TEXT",
-                    "ALTER TABLE sessions ADD COLUMN model TEXT"):
+                    "ALTER TABLE sessions ADD COLUMN model TEXT",
+                    "ALTER TABLE profile ADD COLUMN voice_speaker TEXT",  # voice persona (see persona.py)
+                    "ALTER TABLE profile ADD COLUMN voice_pace REAL",
+                    "ALTER TABLE profile ADD COLUMN voice_style TEXT"):
             try:
                 self.db.execute(ddl)
             except sqlite3.OperationalError:
@@ -244,6 +247,16 @@ class Store:
     def profile(self, user_id: str) -> dict[str, Any]:
         r = self.db.execute("SELECT * FROM profile WHERE user_id=?", (user_id,)).fetchone()
         return dict(r) if r else {"user_id": user_id, "phone": None}
+
+    def set_voice(self, user_id: str, fields: dict[str, Any], ts: str) -> None:
+        """fields: any of voice_speaker / voice_pace / voice_style (validated by persona.validate)."""
+        cols = [c for c in ("voice_speaker", "voice_pace", "voice_style") if c in fields]
+        if not cols:
+            return
+        self.db.execute("INSERT INTO profile(user_id, updated_at) VALUES (?,?) ON CONFLICT(user_id) DO NOTHING",
+                        (user_id, ts))
+        self.db.execute(f"UPDATE profile SET {', '.join(c + '=?' for c in cols)}, updated_at=? WHERE user_id=?",
+                        (*[fields[c] for c in cols], ts, user_id))
 
     def set_phone(self, user_id: str, phone: str | None, ts: str) -> None:
         self.db.execute("INSERT INTO profile(user_id, phone, updated_at) VALUES (?,?,?) ON CONFLICT(user_id) "

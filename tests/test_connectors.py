@@ -243,3 +243,49 @@ def test_google_client_sends_multipart_email_with_related_logo():
     types = [p.get_content_type() for p in msg.walk()]
     assert types == ["multipart/alternative", "text/plain", "multipart/related", "text/html", "image/png"]
     assert [p for p in msg.walk() if p.get_content_type() == "image/png"][0]["Content-ID"] == "<errand-logo>"
+
+
+def test_bookings_panel_actions_resend_email_and_calendar_add_remove():
+    fake = FakeGoogle()
+    agent, world, hub = make(fake)
+    agent.handle_user_message(REQ)
+    agent.handle_user_message("yes")
+    bid = world.side_effects()[0]["booking_id"]
+    b = next(x for x in world.list_bookings("u1")["bookings"] if x["booking_id"] == bid)
+    assert hub.resend_email(b) == "user@example.com"
+    assert len(fake.sent) == 2 and fake.sent[1]["subject"] == fake.sent[0]["subject"]
+    assert hub.remove_from_calendar(bid) is True and not fake.events and agent.store.calendar_event(bid) is None
+    assert hub.remove_from_calendar(bid) is False          # already gone
+    assert hub.add_to_calendar(b) is True and len(fake.events) == 1
+    assert hub.add_to_calendar(b) is False and len(fake.events) == 1  # never twice
+    assert len(world.side_effects()) == 1                  # none of this touches the booking itself
+    with pytest.raises(ValueError):
+        hub.resend_email({**b, "status": "completed"})
+    with pytest.raises(ValueError):
+        hub.add_to_calendar({**b, "status": "cancelled"})
+
+
+def test_voice_persona_settings_and_note():
+    from errand_agent import persona
+    p = persona.settings({"voice_speaker": "rahul", "voice_pace": 1.1, "voice_style": "brisk"})
+    assert p == {"speaker": "rahul", "name": "Rahul", "pace": 1.1, "style": "brisk"}
+    assert persona.settings({"voice_speaker": "nobody", "voice_pace": 9})["speaker"] == "kavya"
+    assert persona.settings({"voice_pace": 9})["pace"] == persona.PACE_RANGE[1]
+    with pytest.raises(ValueError):
+        persona.validate({"pace": 3})
+    note = persona.persona_note(p, "Shubham Kumar")
+    assert "Rahul" in note and "Shubham" in note and "never claim to be a person" in note
+    assert persona.greeting(p, "Shubham").startswith("Hi Shubham, Rahul here from")
+
+
+def test_spoken_turns_carry_the_persona():
+    agent, _, _ = make(FakeGoogle(), connected=False)
+    agent.store.set_voice("u1", {"voice_speaker": "priya", "voice_style": "warm"}, "t")
+    seen = []
+    orig = agent.llm.complete
+    agent.llm.complete = lambda req: (seen.append(req.system + str(req.messages)), orig(req))[1]
+    agent.handle_user_message("hello", channel="voice")
+    assert seen and all("you are Priya" in s for s in seen)
+    seen.clear()
+    agent.handle_user_message("hello again")  # typed turns don't get the call persona
+    assert seen and not any("you are Priya" in s for s in seen)

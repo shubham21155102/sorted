@@ -151,6 +151,14 @@ textarea.field { resize: vertical; min-height: 70px; }
 .review .r-text { margin-top: 4px; }
 .flag { color: var(--bad); font-size: 12px; font-weight: 600; }
 
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.pg { min-width: 32px; height: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); font-weight: 600; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
+.pg:hover:not(:disabled) { border-color: var(--muted); }
+.pg.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.pg:disabled { opacity: .4; cursor: default; }
+.pg-nav { gap: 4px; }
+.pager .gap { color: var(--muted); padding: 0 2px; }
+.pager select.field { padding: 4px 8px; }
 .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 10px; font-weight: 500; z-index: 90; box-shadow: var(--shadow-lg); }
 .empty { padding: 26px; text-align: center; color: var(--muted); }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -196,7 +204,7 @@ const ICON = {
   ban: I('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>'),
   chevl: I('<path d="M15 6l-6 6 6 6"/>'), chevr: I('<path d="M9 6l6 6-6 6"/>'),
 };
-const S = { meta: null, view: 'overview', filters: { service: '', area: '', q: '', status: '' }, bfilters: { status: '', q: '' } };
+const S = { meta: null, view: 'overview', filters: { service: '', area: '', q: '', status: '' }, page: 1, perPage: 25, bfilters: { status: '', q: '' } };
 async function api(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json' }, body: opts.body ? JSON.stringify(opts.body) : undefined });
   const j = await r.json().catch(() => ({}));
@@ -274,11 +282,13 @@ async function providers(page) {
       <select class="field" id="area"><option value="">All areas</option>${S.meta.areas.map(a => `<option value="${a}" ${a === S.filters.area ? 'selected' : ''}>${esc(title(a))}</option>`).join('')}</select>
       <select class="field" id="st"><option value="">Any status</option><option value="active" ${S.filters.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${S.filters.status === 'inactive' ? 'selected' : ''}>Paused</option></select>
       <span class="sub" id="count" style="align-self:center"></span></div>
-    <div class="tablewrap" id="tbl"></div>`;
+    <div class="tablewrap" id="tbl"></div><div class="pager" id="pager"></div>`;
   const load = async () => {
-    const qs = new URLSearchParams(S.filters).toString();
-    const { providers } = await api('/api/admin/providers?' + qs);
-    $('#count').textContent = `${providers.length} provider${providers.length === 1 ? '' : 's'}`;
+    const qs = new URLSearchParams({ ...S.filters, page: S.page, per_page: S.perPage }).toString();
+    const r = await api('/api/admin/providers?' + qs), providers = r.providers;
+    S.page = r.page;
+    $('#count').textContent = `${r.total} provider${r.total === 1 ? '' : 's'}`;
+    drawPager(r, load);
     $('#tbl').innerHTML = providers.length ? `<table><tr><th>Provider</th><th>Service · area</th><th class="num">Price</th><th class="num">Rating</th><th class="num">Jobs</th><th>Hours</th><th>Next free</th><th>Status</th></tr>
       ${providers.map(p => `<tr class="click" data-id="${esc(p.provider_id)}"><td><div class="name">${esc(p.name)} ${p.verified ? `<span class="pill ok" title="Background verified">${ICON.shield}</span>` : ''}</div><div class="sub mono">${esc(p.provider_id)} · ${esc(p.technician || '')}</div></td>
         <td>${esc(title(p.service))}<div class="sub">${esc(title(p.area))}</div></td>
@@ -289,13 +299,30 @@ async function providers(page) {
         <td>${p.active ? '<span class="pill ok">Active</span>' : '<span class="pill">Paused</span>'}</td></tr>`).join('')}</table>` : '<div class="empty">No providers match.</div>';
     $('#tbl').querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => openProvider(tr.dataset.id));
   };
-  let t; $('#q').oninput = e => { clearTimeout(t); t = setTimeout(() => { S.filters.q = e.target.value.trim(); load(); }, 200); };
-  $('#svc').onchange = e => { S.filters.service = e.target.value; load(); };
-  $('#area').onchange = e => { S.filters.area = e.target.value; load(); };
-  $('#st').onchange = e => { S.filters.status = e.target.value; load(); };
+  // any filter change goes back to page 1
+  let t; $('#q').oninput = e => { clearTimeout(t); t = setTimeout(() => { S.filters.q = e.target.value.trim(); S.page = 1; load(); }, 200); };
+  $('#svc').onchange = e => { S.filters.service = e.target.value; S.page = 1; load(); };
+  $('#area').onchange = e => { S.filters.area = e.target.value; S.page = 1; load(); };
+  $('#st').onchange = e => { S.filters.status = e.target.value; S.page = 1; load(); };
   $('#add').onclick = () => openProviderForm();
   S.reloadProviders = load;
   await load();
+}
+
+function drawPager(r, load) {
+  const el = $('#pager'); if (!el) return;
+  if (!r.total) { el.innerHTML = ''; return; }
+  const from = (r.page - 1) * r.per_page + 1, to = Math.min(r.total, r.page * r.per_page);
+  // page numbers: first, last, and two either side of the current page, with gaps as "…"
+  const nums = [...new Set([1, r.pages, ...[-2, -1, 0, 1, 2].map(d => r.page + d)])].filter(n => n >= 1 && n <= r.pages).sort((a, b) => a - b);
+  const btns = []; nums.forEach((n, i) => { if (i && n - nums[i - 1] > 1) btns.push('<span class="gap">…</span>');
+    btns.push(`<button class="pg${n === r.page ? ' on' : ''}" data-p="${n}" ${n === r.page ? 'aria-current="page"' : ''}>${n}</button>`); });
+  el.innerHTML = `<span class="sub">Showing ${from}–${to} of ${r.total}</span>
+    <div class="row pg-nav"><button class="pg" data-p="${r.page - 1}" ${r.page === 1 ? 'disabled' : ''} aria-label="Previous page">${ICON.chevl}</button>${btns.join('')}
+      <button class="pg" data-p="${r.page + 1}" ${r.page === r.pages ? 'disabled' : ''} aria-label="Next page">${ICON.chevr}</button></div>
+    <label class="sub row">Rows per page <select class="field" id="pp">${[25, 50, 100].map(n => `<option ${n === r.per_page ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+  el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { S.page = +b.dataset.p; load(); $('.main').scrollTo({ top: 0 }); });
+  $('#pp', el).onchange = e => { S.perPage = +e.target.value; S.page = 1; load(); };
 }
 
 function closeDrawer() { document.querySelectorAll('.drawer, .drawer-back').forEach(e => e.remove()); if (location.hash.includes('/')) history.replaceState(null, '', '#providers'); }

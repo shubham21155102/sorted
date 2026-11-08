@@ -335,8 +335,14 @@ def make_handler(app: App):
             self._admin(lambda: admin.overview(app.world))
 
         def admin_providers(self) -> None:
-            self._admin(lambda: {"providers": admin.providers(app.world, self.q.get("service", ""), self.q.get("area", ""),
-                                                             self.q.get("q", ""), self.q.get("status", ""))})
+            def page_num(k: str, d: int) -> int:
+                try:
+                    return int(self.q.get(k, d))
+                except ValueError:
+                    raise ValueError(f"{k} must be a number") from None
+            self._admin(lambda: admin.providers(app.world, self.q.get("service", ""), self.q.get("area", ""),
+                                                self.q.get("q", ""), self.q.get("status", ""),
+                                                page_num("page", 1), page_num("per_page", 25)))
 
         def admin_create_provider(self) -> None:
             b = self._body()

@@ -127,3 +127,16 @@ def test_world_persists_across_restarts_and_imports_old_json(tmp_path):
     w3 = MockWorld(ScenarioConfig(), FakeClock(), str(legacy.parent / "world.sqlite"))
     assert w3.booking("BK-1004")["price"] == 920 and w3.get_booking_status(idempotency_key="k1")["booking_id"] == "BK-1004"
     assert not legacy.exists() and (legacy.parent / "world.json.migrated").exists()
+
+
+def test_providers_are_paginated(world):
+    p1 = admin.providers(world, page=1, per_page=25)
+    assert p1["total"] == world._one("SELECT COUNT(*) n FROM providers")["n"] and len(p1["providers"]) == 25
+    assert p1["pages"] == -(-p1["total"] // 25)
+    last = admin.providers(world, page=p1["pages"], per_page=25)
+    assert len(last["providers"]) == p1["total"] - 25 * (p1["pages"] - 1)
+    ids = {p["provider_id"] for n in range(1, p1["pages"] + 1) for p in admin.providers(world, page=n)["providers"]}
+    assert len(ids) == p1["total"]                              # every provider on exactly one page
+    assert admin.providers(world, page=999)["page"] == p1["pages"]  # out of range clamps to the last page
+    f = admin.providers(world, service="ac_servicing", area="indiranagar")
+    assert f["total"] == 7 and f["pages"] == 1

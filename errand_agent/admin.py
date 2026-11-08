@@ -109,7 +109,9 @@ def overview(w: MockWorld) -> dict[str, Any]:
     }
 
 
-def providers(w: MockWorld, service: str = "", area: str = "", q: str = "", status: str = "") -> list[dict[str, Any]]:
+def providers(w: MockWorld, service: str = "", area: str = "", q: str = "", status: str = "",
+              page: int = 1, per_page: int = 25) -> dict[str, Any]:
+    """One page of providers (next free slot is only worked out for the rows on the page)."""
     sql, args = "SELECT * FROM providers WHERE 1=1", []
     if service:
         sql += " AND service = ?"; args.append(service)
@@ -119,9 +121,15 @@ def providers(w: MockWorld, service: str = "", area: str = "", q: str = "", stat
         sql += " AND (name LIKE ? OR provider_id LIKE ? OR technician LIKE ?)"; args += [f"%{q}%"] * 3
     if status in ("active", "inactive"):
         sql += " AND active = ?"; args.append(1 if status == "active" else 0)
-    sql += " ORDER BY service, area, CAST(substr(provider_id, 9) AS INTEGER)"
+    total = w._one(sql.replace("SELECT *", "SELECT COUNT(*) n", 1), tuple(args))["n"]
+    per_page = max(1, min(int(per_page), 100))
+    pages = max(1, -(-total // per_page))
+    page = max(1, min(int(page), pages))
+    sql += " ORDER BY service, area, CAST(substr(provider_id, 9) AS INTEGER) LIMIT ? OFFSET ?"
     today = w.clock.now().date()
-    return [_summary(w, w._provider_row(r), today) for r in w._q(sql, tuple(args))]
+    rows = w._q(sql, (*args, per_page, (page - 1) * per_page))
+    return {"providers": [_summary(w, w._provider_row(r), today) for r in rows],
+            "total": total, "page": page, "pages": pages, "per_page": per_page}
 
 
 def provider_detail(w: MockWorld, pid: str, start: str | None = None) -> dict[str, Any] | None:

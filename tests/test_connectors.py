@@ -218,7 +218,8 @@ def test_move_and_provider_cancel_emails_carry_full_details():
     hub.on_rescheduled("BK-1002", "2026-11-14T14:00", details=details)
     moved = fake.sent[-1]
     assert moved["subject"] == "Moved: Ac Servicing with CoolAir → Saturday, 14 November · 2:00 PM"
-    assert "line-through\">Thursday, 12 November · 10:00 AM" in moved["html"] and "(was Thursday, 12 November" in moved["text"]
+    assert 'was <span style="text-decoration:line-through">Thu 12 Nov, 10:00 AM</span>' in moved["html"]
+    assert ">NOV<" in moved["html"] and ">14<" in moved["html"] and "(was Thursday, 12 November" in moved["text"]
     hub.on_cancelled("BK-1002", by_provider=True, summary="Ac Servicing: CoolAir", details=details)
     assert fake.sent[-1]["subject"].startswith("CoolAir cancelled your ac servicing visit")
     assert "Cancelled by provider" in fake.sent[-1]["html"]

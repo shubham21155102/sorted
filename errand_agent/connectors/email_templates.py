@@ -11,7 +11,7 @@ import html
 import os
 from datetime import datetime
 from typing import Any
-from ..brand import NAME
+from ..brand import NAME, TAGLINE
 
 LOGO_CID = "errand-logo"
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "static", "brand", "logo-128.png")
@@ -101,59 +101,139 @@ def render(kind: str, b: dict[str, Any], *, calendar: str | None = None) -> tupl
     text = "\n".join(text_lines)
 
     # ---------------------------------------------------------------- html
+    return subject, text, _html(kind, b, title=title, lead=lead, subject=subject, cal_line=cal_line, tip=tip)
+
+
+THEME = {  # kind -> (eyebrow, mark glyph, strong colour, soft background)
+    "booked": ("Booking confirmed", "&#10003;", "#1E7A45", "#E8F5EC"),
+    "rescheduled": ("Booking moved", "&#8594;", "#1D5FB4", "#E8F0FB"),
+    "cancelled": ("Booking cancelled", "&#215;", "#5F5B53", "#F0EEE9"),
+    "provider_cancelled": ("Cancelled by provider", "!", "#B3261E", "#FCEBE9"),
+}
+FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+
+
+def _parts(slot: str | None) -> tuple[str, str, str, str] | None:
+    """'2026-11-16T11:00' -> ('NOV', '16', 'MON', '11:00 AM')"""
+    try:
+        d = datetime.fromisoformat(slot or "")
+    except ValueError:
+        return None
+    return f"{d:%b}".upper(), str(d.day), f"{d:%a}".upper(), f"{d:%I:%M %p}".lstrip("0")
+
+
+def _html(kind: str, b: dict[str, Any], *, title: str, lead: str, subject: str, cal_line: str | None, tip: str) -> str:
     e = html.escape
-    label, fg, bg = BADGES[kind]
-    row_html = "".join(
-        f'<tr><td style="padding:10px 0;border-top:1px solid {LINE};color:{MUTED};font-size:13px;width:110px;'
-        f'vertical-align:top">{e(lab)}</td><td style="padding:10px 0;border-top:1px solid {LINE};color:{INK};'
-        f'font-size:15px;font-weight:600">'
-        + (f'<span style="color:{MUTED};font-weight:400;text-decoration:line-through">{e(was)}</span><br>' if was else "")
-        + (f'<span style="font-family:Menlo,Consolas,monospace;font-size:14px">{e(val)}</span>' if lab == "Booking ID"
-           else e(val))
-        + "</td></tr>"
-        for lab, val, was in rows)
-    cal_html = (f'<tr><td style="padding:0 28px 6px"><table role="presentation" width="100%" cellpadding="0" '
-                f'cellspacing="0" style="background:{CREAM};border-radius:10px"><tr><td style="padding:12px 14px;'
-                f'font-size:14px;color:{INK};border-left:3px solid {ACCENT}">{e(cal_line)}</td></tr></table></td></tr>') if cal_line else ""
-    page = f"""<!doctype html>
+    eyebrow, glyph, strong, soft = THEME[kind]
+    label = BADGES[kind][0]
+    first = os.environ.get("ERRAND_USER_NAME", "Shubham").split(" ")[0]  # same default as the server
+    app_url = os.environ.get("ERRAND_APP_URL", "http://127.0.0.1:8765")
+    service, provider = _service(b), b.get("provider_name") or "your provider"
+    greeting = {"booked": f"You're all set{', ' + first if first else ''}.",
+                "rescheduled": f"Done{', ' + first if first else ''}: new time below.",
+                "cancelled": f"All cancelled{', ' + first if first else ''}.",
+                "provider_cancelled": f"Sorry{', ' + first if first else ''}, plans changed."}[kind]
+    p = _parts(b.get("slot"))
+    month, day, wday, time_ = p if p else ("", "", "", "")
+    struck = kind in ("cancelled", "provider_cancelled")
+    was = ""
+    if kind == "rescheduled" and b.get("old_slot"):
+        try:
+            o = datetime.fromisoformat(b["old_slot"])
+            was = f"{o:%a} {o.day} {o:%b}, {o:%I:%M %p}".replace(", 0", ", ")
+        except ValueError:
+            was = b["old_slot"]
+    area = str(b.get("area") or "").title()
+    price = f"₹{int(b['price']):,}" if b.get("price") is not None else "—"
+    dim = "opacity:.55;" if struck else ""
+
+    date_tile = f"""<table role="presentation" cellpadding="0" cellspacing="0" width="76" style="width:76px;border-collapse:separate;{dim}">
+      <tr><td align="center" style="background:{strong};color:#fff;font:700 11px/1 {FONT};letter-spacing:.12em;padding:7px 0;border-radius:12px 12px 0 0">{e(month)}</td></tr>
+      <tr><td align="center" style="background:#fff;border:1px solid {LINE};border-top:0;border-radius:0 0 12px 12px;padding:6px 0 8px">
+        <div style="font:800 30px/1.05 {FONT};color:{INK}">{e(day)}</div>
+        <div style="font:600 10px/1.4 {FONT};color:{MUTED};letter-spacing:.12em">{e(wday)}</div></td></tr></table>"""
+    when_html = (f'<div style="font:700 20px/1.25 {FONT};color:{INK};{"text-decoration:line-through;color:" + MUTED + ";" if struck else ""}">{e(time_)}</div>'
+                 + (f'<div style="font:400 13px/1.5 {FONT};color:{MUTED};padding-top:2px">was <span style="text-decoration:line-through">{e(was)}</span></div>' if was else "")
+                 + f'<div style="font:600 15px/1.45 {FONT};color:{INK};padding-top:6px">{e(service.capitalize())} &middot; {e(provider)}</div>'
+                 + (f'<div style="font:400 14px/1.45 {FONT};color:{MUTED}">{e(f"{wday.title()}, {day} {month.title()}")}</div>' if p else ""))
+
+    def cell(lab: str, val: str, mono: bool = False) -> str:
+        fam = "Menlo,Consolas,monospace" if mono else FONT
+        return (f'<td width="50%" valign="top" style="padding:14px 0 0">'
+                f'<div style="font:600 11px/1.4 {FONT};color:{MUTED};letter-spacing:.08em;text-transform:uppercase">{e(lab)}</div>'
+                f'<div style="font:700 16px/1.4 {fam};color:{INK};padding-top:2px">{e(val)}</div></td>')
+
+    cal_html = (f"""<tr><td style="padding:0 28px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="background:{CREAM};border-radius:12px;padding:12px 14px;font:400 14px/1.5 {FONT};color:{INK}">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{ACCENT};margin-right:8px;vertical-align:1px"></span>{e(cal_line)}</td></tr></table></td></tr>"""
+                if cal_line else "")
+    button = f"""<table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="border-radius:999px;background:{INK}"><a href="{e(app_url)}" style="display:inline-block;padding:12px 22px;font:600 14px/1 {FONT};color:#fff;text-decoration:none;border-radius:999px">Open {e(NAME)}</a></td></tr></table>"""
+
+    return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light"><title>{e(subject)}</title></head>
-<body style="margin:0;padding:0;background:#F5F3EE;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0">{e(lead)}</span>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F3EE">
-<tr><td align="center" style="padding:28px 12px">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
-    <tr><td style="padding:0 4px 16px">
-      <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-        <td style="vertical-align:middle"><img src="cid:{LOGO_CID}" width="36" height="36" alt="{e(NAME)}"
-            style="display:block;border:0;border-radius:9px"></td>
-        <td style="vertical-align:middle;padding-left:10px;font-size:18px;font-weight:700;color:{INK};letter-spacing:-.01em">{e(NAME)}</td>
-      </tr></table>
-    </td></tr>
-    <tr><td style="background:#FFFFFF;border:1px solid {LINE};border-radius:16px;overflow:hidden">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-        <tr><td style="height:5px;background:{ACCENT};font-size:0;line-height:0">&nbsp;</td></tr>
-        <tr><td style="padding:26px 28px 4px">
-          <span style="display:inline-block;padding:4px 10px;border-radius:999px;background:{bg};color:{fg};
-                font-size:12px;font-weight:700;letter-spacing:.02em">{e(label)}</span>
-          <h1 style="margin:14px 0 8px;font-size:22px;line-height:1.3;color:{INK};font-weight:700">{e(title)}</h1>
-          <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:{MUTED}">{e(lead)}</p>
-        </td></tr>
-        <tr><td style="padding:0 28px 18px">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">{row_html}</table>
-        </td></tr>
-        {cal_html}
-        <tr><td style="padding:12px 28px 26px;font-size:14px;line-height:1.55;color:{INK}">{e(tip)}</td></tr>
-      </table>
-    </td></tr>
-    <tr><td style="padding:16px 8px 0;font-size:12px;line-height:1.6;color:{MUTED};text-align:center">
-      Sent by {e(NAME)} to your own address, because you turned on email confirmations in Connectors.<br>
-      {e(NAME)} only books, moves or cancels after you approve the exact details.
-    </td></tr>
-  </table>
-</td></tr></table>
+<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"><title>{e(subject)}</title></head>
+<body style="margin:0;padding:0;background:#F4EFE6;-webkit-text-size-adjust:100%">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">{e(lead)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4EFE6">
+<tr><td align="center" style="padding:28px 12px 36px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
+
+  <tr><td style="padding:0 6px 18px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td valign="middle" width="44"><img src="cid:{LOGO_CID}" width="40" height="40" alt="{e(NAME)}" style="display:block;border:0;border-radius:11px"></td>
+      <td valign="middle" style="padding-left:10px;font:800 20px/1 {FONT};color:{INK};letter-spacing:-.02em">{e(NAME)}</td>
+      <td valign="middle" align="right" style="font:500 12px/1.4 {FONT};color:{MUTED}">Booking <span style="font-family:Menlo,Consolas,monospace;color:{INK}">{e(b.get("booking_id") or "")}</span></td>
+    </tr></table></td></tr>
+
+  <tr><td style="background:#ffffff;border-radius:22px;border:1px solid {LINE};overflow:hidden">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+
+      <tr><td style="background:{soft};padding:28px 28px 24px;border-radius:22px 22px 0 0">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+          <td width="44" height="44" align="center" valign="middle" style="width:44px;height:44px;border-radius:50%;background:{strong};color:#fff;font:800 22px/44px {FONT}">{glyph}</td>
+          <td style="padding-left:12px"><div style="font:700 12px/1.4 {FONT};color:{strong};letter-spacing:.1em;text-transform:uppercase">{e(eyebrow)}</div>
+            <div style="font:500 14px/1.4 {FONT};color:{INK}">{e(greeting)}</div></td>
+        </tr></table>
+        <h1 style="margin:18px 0 6px;font:800 26px/1.2 {FONT};color:{INK};letter-spacing:-.02em">{e(title)}</h1>
+        <p style="margin:0;font:400 15px/1.55 {FONT};color:#4A4740">{e(lead)}</p>
+      </td></tr>
+
+      <tr><td style="padding:24px 28px 6px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td width="76" valign="top">{date_tile}</td>
+          <td valign="top" style="padding-left:16px">{when_html}</td>
+        </tr></table>
+      </td></tr>
+
+      <tr><td style="padding:18px 28px 0"><div style="border-top:2px dashed {LINE};height:0;line-height:0;font-size:0">&nbsp;</div></td></tr>
+
+      <tr><td style="padding:0 28px 18px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>{cell("Price", price)}{cell("Booking ID", b.get("booking_id") or "", mono=True)}</tr>
+          <tr>{cell("Where", f"{area}, Bangalore" if area else "—")}<td width="50%" valign="top" style="padding:14px 0 0">
+            <div style="font:600 11px/1.4 {FONT};color:{MUTED};letter-spacing:.08em;text-transform:uppercase">Status</div>
+            <div style="padding-top:4px"><span style="display:inline-block;padding:3px 10px;border-radius:999px;background:{soft};color:{strong};font:700 12px/1.5 {FONT}">{e(label)}</span></div></td></tr>
+        </table>
+      </td></tr>
+
+      {cal_html}
+
+      <tr><td style="padding:16px 28px 28px">
+        <p style="margin:0 0 16px;font:400 14px/1.55 {FONT};color:#4A4740">{e(tip)}</p>
+        {button}
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td align="center" style="padding:22px 18px 0;font:400 12px/1.65 {FONT};color:{MUTED}">
+    <div style="font:700 13px/1.4 {FONT};color:{INK};padding-bottom:4px">{e(NAME)} &middot; {e(TAGLINE)}</div>
+    {e(NAME)} only books, moves or cancels after you approve the exact details, and checks every change with the provider.<br>
+    You get this because email confirmations are on (Connectors in {e(NAME)}).
+  </td></tr>
+
+</table></td></tr></table>
 </body></html>"""
-    return subject, text, page
 
 
 def logo_bytes() -> bytes | None:

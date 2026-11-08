@@ -100,6 +100,33 @@ Run it with `python -m errand_agent.server --voice` (one command; the worker run
 
 **Verified end to end** against LiveKit Cloud: a test caller published synthesized speech as its microphone. The agent transcribed it, found and held a plumber, read out the approval, booked after "Yes." (one verified booking), and the full transcript was saved in the chat.
 
+## Connectors (Google Calendar + Gmail)
+
+Open **Connectors** from the user menu and click **Connect Google**. One sign-in covers both products. Errand asks for these scopes:
+
+- `calendar.freebusy`: busy times only;
+- `calendar.events`: only events Errand creates;
+- `gmail.send`: emails to yourself.
+
+The rules are enforced in code (`errand_agent/connectors/hub.py`):
+
+- **Before proposing a slot**, Errand reads your free/busy times and skips any slot that overlaps a busy block. If Google is down, every slot is offered as before.
+- **Only after a verified booking change** does Errand write anything. It creates the event when a booking is made, moves it on reschedule and deletes it on cancellation. If the provider cancels, the event is marked "[Cancelled by provider]". It also emails you a confirmation.
+- **A failed booking writes nothing.** A Google outage never hides a confirmed booking.
+- **Each booking is written once.** A repeated "yes" doesn't create a second event or email.
+- **Each write can be switched off** in the modal.
+
+Setup:
+
+1. Create a Google Cloud project and enable the Calendar API and Gmail API.
+2. Configure the OAuth consent screen. External / Testing is fine; add yourself as a test user.
+3. Create a **Desktop app** OAuth client.
+4. Put the client ID and secret in `secrets/google.env` as `GOOGLE_CLIENT_ID=…` and `GOOGLE_CLIENT_SECRET=…`.
+
+The redirect is the loopback URL `http://127.0.0.1:8765/api/connectors/google/callback`. Tokens are stored in the local SQLite database, and **Disconnect** revokes them.
+
+Tests and evals use `FakeGoogle` and never reach Google. See `tests/test_connectors.py` and the eval scenario `google_calendar_busy_and_event`.
+
 ## Layout
 
 | Module | Responsibility |

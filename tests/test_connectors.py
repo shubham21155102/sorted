@@ -193,3 +193,53 @@ def test_get_calendar_not_connected_and_outage():
     assert agent._tool_get_calendar("2026-11-09")["error"] == "calendar_not_connected"
     agent2, _, _ = make(FakeGoogle(fail={"list"}))
     assert agent2._tool_get_calendar("2026-11-09")["error"] == "calendar_unavailable"
+
+
+def test_booking_email_is_html_with_inline_logo_and_details():
+    fake = FakeGoogle()
+    agent, world, _ = make(fake)
+    agent.handle_user_message(REQ)
+    agent.handle_user_message("yes")
+    (mail,) = fake.sent
+    op = world.side_effects()[0]
+    assert mail["subject"].startswith("Booked: Plumber with ")
+    assert "cid:errand-logo" in mail["html"] and mail["inline"] == ["errand-logo"]
+    assert op["booking_id"] in mail["html"] and f"₹{op['price']:,}" in mail["html"] and "Confirmed" in mail["html"]
+    assert "It's on your Google Calendar" in mail["text"]
+
+
+def test_move_and_provider_cancel_emails_carry_full_details():
+    from errand_agent.connectors import email_templates
+    fake = FakeGoogle()
+    agent, _, hub = make(fake)
+    agent.store.save_calendar_event("BK-1002", "u1", fake.insert_event({"summary": "AC"}), "t")
+    details = {"service": "ac_servicing", "provider_name": "CoolAir", "slot": "2026-11-12T10:00", "price": 1200,
+               "area": "indiranagar"}
+    hub.on_rescheduled("BK-1002", "2026-11-14T14:00", details=details)
+    moved = fake.sent[-1]
+    assert moved["subject"] == "Moved: Ac Servicing with CoolAir → Saturday, 14 November · 2:00 PM"
+    assert "line-through\">Thursday, 12 November · 10:00 AM" in moved["html"] and "(was Thursday, 12 November" in moved["text"]
+    hub.on_cancelled("BK-1002", by_provider=True, summary="Ac Servicing: CoolAir", details=details)
+    assert fake.sent[-1]["subject"].startswith("CoolAir cancelled your ac servicing visit")
+    assert "Cancelled by provider" in fake.sent[-1]["html"]
+    # provider text is escaped in the HTML part
+    _, _, page = email_templates.render("booked", {**details, "provider_name": "<b>Evil</b>", "booking_id": "BK-9"})
+    assert "<b>Evil</b>" not in page and "&lt;b&gt;Evil&lt;/b&gt;" in page
+
+
+def test_google_client_sends_multipart_email_with_related_logo():
+    import base64
+    import email
+    sent = {}
+
+    def http(method, url, headers, data):
+        if url.startswith("https://oauth2.googleapis.com/token"):
+            return 200, {"access_token": "t", "expires_in": 3600}
+        sent["raw"] = json.loads(data)["raw"]
+        return 200, {"id": "m1"}
+    g = GoogleClient("cid", "secret", {"refresh_token": "r"}, None, http)
+    g.send_email("me@x", "Hi", "plain", html='<img src="cid:errand-logo">', inline={"errand-logo": b"\x89PNG..."})
+    msg = email.message_from_bytes(base64.urlsafe_b64decode(sent["raw"]))
+    types = [p.get_content_type() for p in msg.walk()]
+    assert types == ["multipart/alternative", "text/plain", "multipart/related", "text/html", "image/png"]
+    assert [p for p in msg.walk() if p.get_content_type() == "image/png"][0]["Content-ID"] == "<errand-logo>"

@@ -147,11 +147,20 @@ class GoogleClient:
                 raise
 
     # ----------------------------------------------------------------- gmail
-    def send_email(self, to: str, subject: str, text: str) -> str:
+    def send_email(self, to: str, subject: str, text: str, html: str | None = None,
+                   inline: dict[str, bytes] | None = None) -> str:
+        """Send to yourself. With `html`, a multipart/alternative email; `inline` maps content-ids to PNG
+        bytes shown in the HTML as cid:<id> (multipart/related), so no remote images are needed."""
         msg = EmailMessage()
         msg["To"] = to
         msg["From"] = to
         msg["Subject"] = subject
         msg.set_content(text)
+        if html:
+            msg.add_alternative(html, subtype="html")
+            html_part = msg.get_payload()[-1]
+            for cid, data in (inline or {}).items():
+                html_part.add_related(data, maintype="image", subtype="png", cid=f"<{cid}>",
+                                      filename=f"{cid}.png", disposition="inline")
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
         return self._api("POST", f"{GMAIL}/users/me/messages/send", {"raw": raw}).get("id", "")

@@ -287,9 +287,11 @@ class ErrandAgent:
             return msg
         self._emit("proactive", decision="notify_and_find_replacement", booking=b)
         if self.connectors:
+            prov = self.world.state["providers"].get(b.get("provider_id"), {})
             for n in self._safe(lambda: self.connectors.on_cancelled(
                     b["booking_id"], by_provider=True,
-                    summary=f"{b['service'].replace('_', ' ').title()}: {b['provider_name']}"), []):
+                    summary=f"{b['service'].replace('_', ' ').title()}: {b['provider_name']}",
+                    details={**b, "area": prov.get("area")}), []):
                 self._emit("connector", connector=n["kind"], action="provider_cancelled", ok=n["ok"] == "yes", note=n["text"])
                 self._connector_notes.append(n["text"])
         slot_day = datetime.fromisoformat(b["slot"]).date()
@@ -668,7 +670,8 @@ class ErrandAgent:
                 return {"error": "booking_not_active", "booking_status": b["status"]}
             facts = {"booking_id": b["booking_id"], "new_slot": new_slot}
             display = {"provider_name": b["provider_name"], "service": b["service"], "slot_human": human_slot(b["slot"]),
-                       "old_slot_human": human_slot(b["slot"]), "new_slot_human": human_slot(new_slot or "")}
+                       "old_slot_human": human_slot(b["slot"]), "new_slot_human": human_slot(new_slot or ""),
+                       "slot": b["slot"]}  # raw slot before the change, for connector emails
             if action == "reschedule" and not new_slot:
                 return {"error": "new_slot_required"}
         else:
@@ -768,10 +771,18 @@ class ErrandAgent:
                     "booking_id": out.get("booking_id"), "slot": out.get("slot"), "price": out.get("price"),
                     "provider_id": out.get("provider_id"), "provider_name": p["display"].get("provider_name"),
                     "service": p["display"].get("service"), "area": prov.get("area")})
-            elif p["action"] == "cancel":
-                notes = self.connectors.on_cancelled(out.get("booking_id"))
             else:
-                notes = self.connectors.on_rescheduled(out.get("booking_id"), out.get("slot"))
+                # The booking as it was before the change (provider, service, old slot, price, area) for the email.
+                b = self._booking(out.get("booking_id") or "") or {}
+                prov = self.world.state["providers"].get(b.get("provider_id"), {})
+                details = {"service": p["display"].get("service") or b.get("service"),
+                           "provider_name": p["display"].get("provider_name") or b.get("provider_name"),
+                           "slot": p["display"].get("slot") or b.get("slot"),
+                           "price": b.get("price"), "area": prov.get("area")}
+                if p["action"] == "cancel":
+                    notes = self.connectors.on_cancelled(out.get("booking_id"), details=details)
+                else:
+                    notes = self.connectors.on_rescheduled(out.get("booking_id"), out.get("slot"), details=details)
         except Exception as e:
             notes = [{"kind": "connector", "ok": "no", "text": f"⚠️ Connected apps weren't updated ({type(e).__name__})."}]
         for n in notes:

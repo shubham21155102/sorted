@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 from ..clock import Clock
 from ..store import Store
+from . import email_templates
 from .google import GoogleClient, GoogleError
 
 TZ = "Asia/Kolkata"
@@ -193,14 +194,17 @@ class ConnectorHub:
             "extendedProperties": {"private": {"errand_booking_id": b["booking_id"]}},
         }
 
-    def _email(self, g: Any, subject: str, lines: list[str]) -> str | None:
+    def _email(self, g: Any, kind: str, b: dict[str, Any], calendar: str | None = None) -> str | None:
+        """Send the `kind` booking email (see email_templates) to the connected account itself."""
         if not self.settings()["email_confirmations"]:
             return None
         acct = self.account() or {}
         to = acct.get("account")
         if not to:
             return None
-        g.send_email(to, subject, "\n".join(lines + ["", "— Errand"]))
+        subject, text, page = email_templates.render(kind, b, calendar=calendar)
+        logo = email_templates.logo_bytes()
+        g.send_email(to, subject, text, html=page, inline={email_templates.LOGO_CID: logo} if logo else None)
         return to
 
     def on_booked(self, b: dict[str, Any]) -> list[dict[str, str]]:
@@ -210,59 +214,65 @@ class ConnectorHub:
             return []
         notes: list[dict[str, str]] = []
         s = self.settings()
+        cal = None
         if s["calendar_events"]:
             try:
                 if not self.store.calendar_event(b["booking_id"]):  # idempotent: never two events per booking
                     eid = g.insert_event(self._event_body(b))
                     self.store.save_calendar_event(b["booking_id"], self.user_id, eid, self.clock.now().isoformat())
+                cal = "added"
                 notes.append({"kind": "calendar", "ok": "yes", "text": "📅 Added to your Google Calendar."})
             except GoogleError as e:
                 notes.append({"kind": "calendar", "ok": "no",
                               "text": f"⚠️ Couldn't add it to your Google Calendar ({e.status}). The booking itself is confirmed."})
         try:
-            to = self._email(g, f"Errand: booking confirmed — {b.get('provider_name')}, {_human(b['slot'])}", [
-                f"Your {str(b.get('service', '')).replace('_', ' ')} booking is confirmed with the provider.",
-                f"Provider: {b.get('provider_name')}", f"When: {_human(b['slot'])}", f"Price: ₹{b.get('price')}",
-                f"Booking ID: {b['booking_id']}"])
+            to = self._email(g, "booked", b, cal)
             if to:
                 notes.append({"kind": "email", "ok": "yes", "text": f"✉️ Confirmation emailed to {to}."})
         except GoogleError as e:
             notes.append({"kind": "email", "ok": "no", "text": f"⚠️ Couldn't send the confirmation email ({e.status})."})
         return notes
 
-    def on_cancelled(self, booking_id: str, by_provider: bool = False, summary: str = "") -> list[dict[str, str]]:
+    def on_cancelled(self, booking_id: str, by_provider: bool = False, summary: str = "",
+                     details: dict[str, Any] | None = None) -> list[dict[str, str]]:
+        """details: the booking (service, provider_name, slot, price, area) for the email."""
         g = self.google()
         if not g:
             return []
         notes: list[dict[str, str]] = []
+        cal = None
         ev = self.store.calendar_event(booking_id)
         if ev and self.settings()["calendar_events"]:
             try:
                 if by_provider:  # keep it visible so you notice, but clearly marked
                     g.patch_event(ev["event_id"], {"summary": f"[Cancelled by provider] {summary or booking_id}",
                                                    "transparency": "transparent"})
+                    cal = "marked"
                     notes.append({"kind": "calendar", "ok": "yes", "text": "📅 Marked as cancelled in your Google Calendar."})
                 else:
                     g.delete_event(ev["event_id"])
                     self.store.delete_calendar_event(booking_id)
+                    cal = "removed"
                     notes.append({"kind": "calendar", "ok": "yes", "text": "📅 Removed from your Google Calendar."})
             except GoogleError as e:
                 notes.append({"kind": "calendar", "ok": "no", "text": f"⚠️ Couldn't update your Google Calendar ({e.status})."})
-        if not by_provider:
-            try:
-                to = self._email(g, f"Errand: booking {booking_id} cancelled",
-                                 [f"Your booking {booking_id} has been cancelled with the provider."])
-                if to:
-                    notes.append({"kind": "email", "ok": "yes", "text": f"✉️ Cancellation emailed to {to}."})
-            except GoogleError as e:
-                notes.append({"kind": "email", "ok": "no", "text": f"⚠️ Couldn't send the cancellation email ({e.status})."})
+        try:
+            to = self._email(g, "provider_cancelled" if by_provider else "cancelled",
+                             {**(details or {}), "booking_id": booking_id}, cal)
+            if to:
+                notes.append({"kind": "email", "ok": "yes", "text": f"✉️ Cancellation emailed to {to}."})
+        except GoogleError as e:
+            notes.append({"kind": "email", "ok": "no", "text": f"⚠️ Couldn't send the cancellation email ({e.status})."})
         return notes
 
-    def on_rescheduled(self, booking_id: str, new_slot: str) -> list[dict[str, str]]:
+    def on_rescheduled(self, booking_id: str, new_slot: str,
+                       details: dict[str, Any] | None = None) -> list[dict[str, str]]:
+        """details: the booking before the move (service, provider_name, slot = old slot, price, area)."""
         g = self.google()
         if not g:
             return []
         notes: list[dict[str, str]] = []
+        cal = None
         ev = self.store.calendar_event(booking_id)
         if ev and self.settings()["calendar_events"]:
             try:
@@ -270,12 +280,14 @@ class ConnectorHub:
                 g.patch_event(ev["event_id"], {
                     "start": {"dateTime": start.isoformat(), "timeZone": TZ},
                     "end": {"dateTime": (start + timedelta(minutes=EVENT_MINUTES)).isoformat(), "timeZone": TZ}})
+                cal = "moved"
                 notes.append({"kind": "calendar", "ok": "yes", "text": f"📅 Moved in your Google Calendar to {_human(new_slot)}."})
             except GoogleError as e:
                 notes.append({"kind": "calendar", "ok": "no", "text": f"⚠️ Couldn't move the calendar event ({e.status})."})
         try:
-            to = self._email(g, f"Errand: booking {booking_id} moved to {_human(new_slot)}",
-                             [f"Your booking {booking_id} now takes place {_human(new_slot)}."])
+            d = details or {}
+            to = self._email(g, "rescheduled", {**d, "booking_id": booking_id, "old_slot": d.get("slot"),
+                                                "slot": new_slot}, cal)
             if to:
                 notes.append({"kind": "email", "ok": "yes", "text": f"✉️ Change emailed to {to}."})
         except GoogleError as e:
@@ -338,7 +350,8 @@ class FakeGoogle:
         self._check("delete")
         self.events.pop(event_id, None)
 
-    def send_email(self, to: str, subject: str, text: str) -> str:
+    def send_email(self, to: str, subject: str, text: str, html: str | None = None,
+                   inline: dict[str, bytes] | None = None) -> str:
         self._check("email")
-        self.sent.append({"to": to, "subject": subject, "text": text})
+        self.sent.append({"to": to, "subject": subject, "text": text, "html": html, "inline": sorted(inline or {})})
         return f"msg{len(self.sent)}"

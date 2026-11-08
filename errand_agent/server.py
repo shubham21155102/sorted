@@ -155,6 +155,7 @@ ROUTES: list[tuple[str, str, str]] = [
     ("GET", r"^/static/(?P<folder>logos|brand)/(?P<name>[a-z0-9-]+\.(?:svg|png|ico))$", "asset"),
     ("GET", r"^/favicon\.ico$", "favicon"),
     ("GET", r"^/api/connectors$", "connectors"),
+    ("GET", r"^/api/connectors/email/preview$", "email_preview"),
     ("GET", r"^/api/connectors/google/connect$", "google_connect"),
     ("GET", r"^/api/connectors/google/callback$", "google_callback"),
     ("POST", r"^/api/connectors/google/disconnect$", "google_disconnect"),
@@ -259,6 +260,23 @@ def make_handler(app: App):
 
         def favicon(self) -> None:
             self.asset("brand", "favicon.ico")
+
+        def email_preview(self) -> None:
+            """The booking email templates with sample data (local only; nothing is sent)."""
+            from .connectors import email_templates
+            kind = self.q.get("kind", "booked")
+            if kind not in email_templates.BADGES:
+                return self._json({"error": f"kind must be one of {sorted(email_templates.BADGES)}"}, 400)
+            sample = {"booking_id": "BK-1004", "service": "plumber", "provider_name": "QuickPipe",
+                      "slot": "2026-11-16T11:00", "old_slot": "2026-11-12T09:00", "price": 990, "area": "indiranagar"}
+            cal = {"booked": "added", "rescheduled": "moved", "cancelled": "removed", "provider_cancelled": "marked"}[kind]
+            subject, text, page = email_templates.render(kind, sample, calendar=cal)
+            body = page.replace(f"cid:{email_templates.LOGO_CID}", "/static/brand/logo-128.png").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
 
         def index(self) -> None:
             with open(STATIC, "rb") as f:

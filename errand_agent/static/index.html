@@ -925,7 +925,7 @@ async function refreshPanel(full = false) {
         ? `<button class="bk-act" data-act="email" data-id="${esc(b.booking_id)}">${ICON.mail}Resend email</button>` : '';
       return mail || cal ? `<div class="bk-acts">${mail}${cal}</div>` : '';
     };
-    const row = b => `<div class="item"><div class="main-col"><div class="v">${esc(b.provider_name)}${b.on_calendar ? ' <span class="pill violet cal-pill" title="On your Google Calendar">${ICON.cal}calendar</span>' : ''}</div><div class="k2">${esc(b.service.replace('_', ' '))} · ${esc(fmtSlot(b.slot))} · ₹${b.price} · ${esc(b.booking_id)}</div>${acts(b)}</div>${pill(b.status)}</div>`;
+    const row = b => `<div class="item"><div class="main-col"><div class="v">${esc(b.provider_name)}${b.on_calendar ? ` <span class="pill violet cal-pill" title="On your Google Calendar">${ICON.cal}calendar</span>` : ''}</div><div class="k2">${esc(b.service.replace('_', ' '))} · ${esc(fmtSlot(b.slot))} · ₹${b.price} · ${esc(b.booking_id)}</div>${acts(b)}</div>${pill(b.status)}</div>`;
     const sig = JSON.stringify([bookings, S.bookingsGoogle]);
     if (full || sig !== S.bookingsSig) {  // don't rebuild (and swallow clicks) when nothing changed
       S.bookingsSig = sig;

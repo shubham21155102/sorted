@@ -1,5 +1,7 @@
 # Demo script (3–5 min, Loom or unlisted YouTube)
 
+**Recording:** https://www.youtube.com/watch?v=oo5eXKjwjf4 (4:42, Sarvam `bulbul:v4-flash` voice-over).
+
 **What the assignment wants to see:** one full booking, the agent's chat and its trace side by side, and ideally a failure handled live. This script shows two failures (prompt injection and timeout after success) and ends on the generated eval table.
 
 ```mermaid
